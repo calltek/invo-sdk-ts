@@ -1,42 +1,28 @@
 /**
- * @calltek/auth-sdk
+ * INVO SDK
  *
- * Authentication SDK for Calltek services
+ * Backend SDK for INVO API - Authentication and Invoice Management
  *
- * @example
- * ```typescript
- * import { createAuthClient } from '@calltek/auth-sdk'
- *
- * const auth = createAuthClient({
- *   apiUrl: 'https://api.example.com',
- *   environment: 'production'
- * })
- *
- * // Login
- * const { user } = await auth.login({
- *   email: 'user@example.com',
- *   password: 'password123'
- * })
- * ```
  */
 
-// Main client
-export { createAuthClient } from './client'
+// Main SDK
+export { createInvoSDK, InvoSDK } from './sdk'
 
 // Types
 export type {
-    AuthClient,
-    AuthClientConfig,
-    AuthResponse,
-    DecodedToken,
-    Environment,
-    LoginCredentials,
-    OAuthCallbackData,
-    OAuthProvider,
-    OAuthUrlResponse,
-    StorageAdapter,
-    StorageType,
+    // SDK Config
+    InvoSDKConfig,
+    // Custom types
     User,
+    DecodedToken,
+    CreateInvoiceResult,
+    // Auto-generated API types
+    LoginDto,
+    LoginResponseDto,
+    OAuthCallbackDto,
+    InvoiceTaxLineDto,
+    CreateInvoiceDto,
+    UpdateBatchStatusDto,
 } from './types'
 
 // Errors
@@ -51,6 +37,3 @@ export {
 
 // Utilities
 export { decodeJWT, getSecondsUntilExpiration, isTokenExpired, isValidEmail } from './utils'
-
-// Storage
-export { StorageManager } from './storage'

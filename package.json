@@ -21,6 +21,7 @@
         "build": "tsc",
         "build:watch": "tsc --watch",
         "clean": "rm -rf dist",
+        "test": "npx tsx test/test.ts",
         "prepublishOnly": "npm run clean && npm run build",
         "types:sandbox": "npx tsx ./swagger.ts sandbox",
         "types": "npx tsx ./swagger.ts"
@@ -48,6 +49,7 @@
         "@types/node": "^24.10.1",
         "@typescript-eslint/eslint-plugin": "^8.46.4",
         "@typescript-eslint/parser": "^8.46.4",
+        "dotenv": "^17.2.3",
         "eslint": "^9.39.1",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-prettier": "^5.5.4",

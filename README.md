@@ -1,74 +1,81 @@
-# @calltek/auth-sdk
+# INVO SDK
 
-Authentication SDK for Calltek services with full TypeScript support.
+Backend SDK for INVO API - Authentication and Invoice Management with full TypeScript support.
 
 ## Features
 
 ✅ **TypeScript Native** - Complete type definitions and autocomplete
-✅ **Framework Agnostic** - Works with React, Vue, Angular, Vanilla JS, Node.js
-✅ **Flexible Storage** - localStorage, sessionStorage, memory, or custom adapter
+✅ **Backend Optimized** - Designed for Node.js/Backend applications
+✅ **In-Memory Token Storage** - No dependencies on browser storage
 ✅ **Auto Token Refresh** - Automatically refreshes tokens before expiration
-✅ **OAuth Support** - Google, GitHub, Azure, Facebook
-✅ **Multi-Environment** - Production and development modes
+✅ **Invoice Management** - Create and manage VeriFactu invoices
+✅ **Multi-Environment** - Production and sandbox modes
 ✅ **Zero Dependencies** - No external dependencies
-✅ **Tree-Shakeable** - Only import what you need
+✅ **Generic Request Method** - Call any API endpoint with authentication
 
 ## Installation
 
 ```bash
-npm install @calltek/auth-sdk
+npm install invo-sdk
 ```
 
 ```bash
-yarn add @calltek/auth-sdk
+yarn add invo-sdk
 ```
 
 ```bash
-pnpm add @calltek/auth-sdk
+pnpm add invo-sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import { createAuthClient } from '@calltek/auth-sdk'
+import { createInvoSDK } from 'invo-sdk'
 
-// Create client
-const auth = createAuthClient({
-  apiUrl: 'https://api.example.com',
-  environment: 'production',
-  storage: 'localStorage',
-  autoRefresh: true,
+// Create SDK instance
+const sdk = createInvoSDK({
+  email: 'user@example.com',
+  password: 'password123',
+  environment: 'production', // or 'sandbox'
 })
 
 // Login
-const { user, access_token } = await auth.login({
-  email: 'user@example.com',
-  password: 'password123',
+await sdk.login()
+console.log('Authenticated:', sdk.isAuthenticated())
+
+// Create an invoice
+const result = await sdk.createInvoice({
+  issueDate: new Date().toISOString(),
+  invoiceNumber: 'FAC-2024-001',
+  externalId: 'order-12345',
+  totalAmount: 1210.00,
+  customerName: 'Cliente Ejemplo SL',
+  customerTaxId: 'B12345678',
+  emitterName: 'Mi Empresa SL',
+  emitterTaxId: 'B87654321',
+  description: 'Servicios de consultoría tecnológica',
+  taxLines: [
+    {
+      taxRate: 21,
+      baseAmount: 1000.00,
+      taxAmount: 210.00
+    }
+  ]
 })
 
-console.log('Logged in as:', user.email)
-console.log('Token:', access_token)
-
-// Check if authenticated
-if (auth.isAuthenticated()) {
-  const currentUser = auth.getUser()
-  console.log('Current user:', currentUser)
-}
-
-// Logout
-auth.logout()
+console.log('Invoice created:', result.invoiceId)
+console.log('Chain index:', result.chainIndex)
 ```
 
 ## Configuration
 
 ```typescript
-interface AuthClientConfig {
-  apiUrl: string              // Required: API base URL
-  environment?: 'production' | 'development'  // Default: 'production'
-  storage?: 'localStorage' | 'sessionStorage' | 'memory' | StorageAdapter
-  autoRefresh?: boolean       // Default: true
-  refreshBuffer?: number      // Default: 300 (5 minutes before expiry)
-  storagePrefix?: string      // Default: 'auth_'
+interface InvoSDKConfig {
+  email: string                     // Required: User email
+  password: string                  // Required: User password
+  environment?: 'production' | 'sandbox'  // Default: 'production'
+  autoRefresh?: boolean             // Default: true
+  refreshBuffer?: number            // Default: 300 (5 minutes before expiry)
   onTokenRefreshed?: (tokens: AuthResponse) => void
   onLogout?: () => void
   onError?: (error: Error) => void
@@ -77,189 +84,253 @@ interface AuthClientConfig {
 
 ## Usage Examples
 
-### Email/Password Authentication
+### Authentication
 
 ```typescript
-try {
-  const response = await auth.login({
-    email: 'user@example.com',
-    password: 'password123',
-  })
+import { createInvoSDK } from 'invo-sdk'
 
-  console.log('Welcome!', response.user.email)
+// Create and login
+const sdk = createInvoSDK({
+  email: 'user@example.com',
+  password: 'password123',
+  environment: 'production',
+})
+
+try {
+  await sdk.login()
+  console.log('User:', sdk.getUser())
+  console.log('Access Token:', sdk.getAccessToken())
 } catch (error) {
-  if (error instanceof InvalidCredentialsError) {
-    console.error('Invalid email or password')
-  } else {
-    console.error('Login failed:', error.message)
-  }
+  console.error('Login failed:', error.message)
 }
 ```
 
-### OAuth Authentication
+### Creating Invoices
+
+#### Simple Invoice (Single Tax Rate)
 
 ```typescript
-// Get OAuth URL
-const oauthUrl = await auth.getOAuthUrl('google')
-
-// Redirect user to OAuth provider
-window.location.href = oauthUrl
-
-// After callback, handle the tokens
-await auth.handleOAuthCallback({
-  access_token: 'token_from_callback',
-  refresh_token: 'refresh_token_from_callback',
-  expires_in: 3600,
+const result = await sdk.createInvoice({
+  issueDate: new Date().toISOString(),
+  invoiceNumber: 'FAC-2024-001',
+  externalId: 'order-12345',
+  totalAmount: 1210.00,
+  customerName: 'Cliente SL',
+  customerTaxId: 'B12345678',
+  emitterName: 'Mi Empresa SL',
+  emitterTaxId: 'B87654321',
+  type: 'F1', // Factura completa
+  description: 'Servicios de consultoría',
+  taxLines: [
+    {
+      taxRate: 21,
+      baseAmount: 1000.00,
+      taxAmount: 210.00
+    }
+  ]
 })
 ```
 
-### Token Refresh
+#### Invoice with Multiple Tax Rates
 
 ```typescript
-// Manual refresh
+const result = await sdk.createInvoice({
+  issueDate: new Date().toISOString(),
+  invoiceNumber: 'FAC-2024-002',
+  externalId: 'multi-tax-001',
+  totalAmount: 1864.00,
+  customerName: 'Cliente SL',
+  customerTaxId: 'B12345678',
+  emitterName: 'Mi Empresa SL',
+  emitterTaxId: 'B87654321',
+  description: 'Venta mixta de productos',
+  taxLines: [
+    {
+      taxRate: 21,
+      baseAmount: 1000.00,
+      taxAmount: 210.00
+    },
+    {
+      taxRate: 10,
+      baseAmount: 500.00,
+      taxAmount: 50.00
+    },
+    {
+      taxRate: 4,
+      baseAmount: 100.00,
+      taxAmount: 4.00
+    }
+  ]
+})
+```
+
+#### Invoice with Surcharge (Recargo de Equivalencia)
+
+```typescript
+const result = await sdk.createInvoice({
+  issueDate: new Date().toISOString(),
+  invoiceNumber: 'FAC-2024-003',
+  externalId: 'surcharge-001',
+  totalAmount: 126.20,
+  customerName: 'Cliente SL',
+  customerTaxId: 'B12345678',
+  emitterName: 'Mi Empresa SL',
+  emitterTaxId: 'B87654321',
+  description: 'Venta con recargo de equivalencia',
+  taxLines: [
+    {
+      taxRate: 21,
+      baseAmount: 100.00,
+      taxAmount: 21.00,
+      surchargeRate: 5.2,
+      surchargeAmount: 5.20
+    }
+  ]
+})
+```
+
+#### Tax-Exempt Invoice
+
+```typescript
+const result = await sdk.createInvoice({
+  issueDate: new Date().toISOString(),
+  invoiceNumber: 'FAC-2024-004',
+  externalId: 'exempt-001',
+  totalAmount: 2000.00,
+  customerName: 'Cliente SL',
+  customerTaxId: 'B12345678',
+  emitterName: 'Mi Empresa SL',
+  emitterTaxId: 'B87654321',
+  description: 'Operación exenta - Art. 20 Ley IVA',
+  taxLines: [
+    {
+      taxRate: 0,
+      baseAmount: 2000.00,
+      taxAmount: 0.00,
+      taxExemptionReason: 'E1'
+    }
+  ]
+})
+```
+
+### Generic API Requests
+
+```typescript
+// Make any authenticated request to the API
+const data = await sdk.request('/users/me', 'GET')
+console.log('User data:', data)
+
+// POST request
+const result = await sdk.request('/some-endpoint', 'POST', {
+  foo: 'bar'
+})
+```
+
+### Token Management
+
+```typescript
+// Check authentication
+if (sdk.isAuthenticated()) {
+  console.log('User is authenticated')
+}
+
+// Get tokens
+const accessToken = sdk.getAccessToken()
+const refreshToken = sdk.getRefreshToken()
+
+// Manual refresh (auto-refresh is enabled by default)
 try {
-  const newTokens = await auth.refreshToken()
-  console.log('Token refreshed:', newTokens.access_token)
+  await sdk.refreshAccessToken()
+  console.log('Token refreshed')
 } catch (error) {
   console.error('Refresh failed:', error)
-  auth.logout()
 }
 
-// Auto-refresh (enabled by default)
-const auth = createAuthClient({
-  apiUrl: 'https://api.example.com',
-  autoRefresh: true,
-  refreshBuffer: 300, // Refresh 5 minutes before expiry
-  onTokenRefreshed: (tokens) => {
-    console.log('Token auto-refreshed')
-  },
+// Logout
+sdk.logout()
+```
+
+### Express.js Integration
+
+```typescript
+import express from 'express'
+import { createInvoSDK } from 'invo-sdk'
+
+const app = express()
+app.use(express.json())
+
+// Initialize SDK (can be done once at startup)
+const sdk = createInvoSDK({
+  email: process.env.INVO_EMAIL!,
+  password: process.env.INVO_PASSWORD!,
+  environment: 'production',
+})
+
+// Login on startup
+await sdk.login()
+
+// Invoice creation endpoint
+app.post('/api/invoices', async (req, res) => {
+  try {
+    const result = await sdk.createInvoice(req.body)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.listen(3000, () => {
+  console.log('Server running on port 3000')
 })
 ```
 
-### Custom Storage Adapter
+### NestJS Integration
 
 ```typescript
-import { StorageAdapter } from '@calltek/auth-sdk'
+import { Injectable, OnModuleInit } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import { createInvoSDK, InvoSDK } from 'invo-sdk'
 
-// Create custom storage (e.g., secure storage, cookies)
-const customStorage: StorageAdapter = {
-  getItem: (key) => {
-    // Your custom get implementation
-    return Cookies.get(key) || null
-  },
-  setItem: (key, value) => {
-    // Your custom set implementation
-    Cookies.set(key, value, { secure: true, sameSite: 'strict' })
-  },
-  removeItem: (key) => {
-    Cookies.remove(key)
-  },
-  clear: () => {
-    // Clear all auth cookies
-  },
-}
+@Injectable()
+export class InvoiceService implements OnModuleInit {
+  private sdk: InvoSDK
 
-const auth = createAuthClient({
-  apiUrl: 'https://api.example.com',
-  storage: customStorage,
-})
-```
-
-### React Hook Example
-
-```typescript
-import { createAuthClient } from '@calltek/auth-sdk'
-import { useState, useEffect } from 'react'
-
-const auth = createAuthClient({
-  apiUrl: 'https://api.example.com',
-})
-
-export function useAuth() {
-  const [user, setUser] = useState(auth.getUser())
-  const [isAuthenticated, setIsAuthenticated] = useState(auth.isAuthenticated())
-
-  useEffect(() => {
-    setUser(auth.getUser())
-    setIsAuthenticated(auth.isAuthenticated())
-  }, [])
-
-  const login = async (email: string, password: string) => {
-    const response = await auth.login({ email, password })
-    setUser(response.user)
-    setIsAuthenticated(true)
-    return response
+  constructor(private configService: ConfigService) {
+    this.sdk = createInvoSDK({
+      email: this.configService.get('INVO_EMAIL'),
+      password: this.configService.get('INVO_PASSWORD'),
+      environment: this.configService.get('INVO_ENV'),
+    })
   }
 
-  const logout = () => {
-    auth.logout()
-    setUser(null)
-    setIsAuthenticated(false)
+  async onModuleInit() {
+    await this.sdk.login()
   }
 
-  return {
-    user,
-    isAuthenticated,
-    login,
-    logout,
-    getAccessToken: () => auth.getAccessToken(),
-  }
-}
-```
-
-### Vue Composable Example
-
-```typescript
-import { createAuthClient } from '@calltek/auth-sdk'
-import { ref, computed } from 'vue'
-
-const auth = createAuthClient({
-  apiUrl: 'https://api.example.com',
-})
-
-export function useAuth() {
-  const user = ref(auth.getUser())
-  const isAuthenticated = computed(() => auth.isAuthenticated())
-
-  const login = async (email: string, password: string) => {
-    const response = await auth.login({ email, password })
-    user.value = response.user
-    return response
-  }
-
-  const logout = () => {
-    auth.logout()
-    user.value = null
-  }
-
-  return {
-    user,
-    isAuthenticated,
-    login,
-    logout,
-    getAccessToken: () => auth.getAccessToken(),
+  async createInvoice(data: CreateInvoiceData) {
+    return this.sdk.createInvoice(data)
   }
 }
 ```
 
 ## API Reference
 
-### Methods
+### Main SDK Methods
 
-#### `login(credentials: LoginCredentials): Promise<AuthResponse>`
-Login with email and password.
+#### `login(): Promise<AuthResponse>`
+Login with configured credentials.
 
 #### `logout(): void`
-Logout and clear all tokens.
+Logout and clear all tokens from memory.
 
-#### `refreshToken(): Promise<AuthResponse>`
+#### `refreshAccessToken(): Promise<AuthResponse>`
 Manually refresh the access token.
 
-#### `getOAuthUrl(provider: OAuthProvider): Promise<string>`
-Get OAuth URL for a provider ('google' | 'github' | 'azure' | 'facebook').
+#### `createInvoice(data: CreateInvoiceData): Promise<CreateInvoiceResult>`
+Create and submit a new invoice to the VeriFactu system.
 
-#### `handleOAuthCallback(data: OAuthCallbackData): Promise<AuthResponse>`
-Handle OAuth callback and save tokens.
+#### `request<T>(endpoint: string, method?: 'GET' | 'POST' | 'PUT' | 'DELETE', body?: unknown): Promise<T>`
+Make a generic authenticated request to any API endpoint.
 
 #### `getAccessToken(): string | null`
 Get the current access token.
@@ -271,39 +342,61 @@ Get the current refresh token.
 Get the current user information.
 
 #### `isAuthenticated(): boolean`
-Check if the user is authenticated.
+Check if the user is authenticated and token is valid.
 
-#### `getEnvironment(): Environment`
+#### `getEnvironment(): 'production' | 'sandbox'`
 Get the current environment.
 
-#### `setEnvironment(env: Environment): void`
-Switch between 'production' and 'development'.
+#### `setEnvironment(env: 'production' | 'sandbox'): void`
+Switch between production and sandbox environments.
 
 ### Types
 
 ```typescript
-interface LoginCredentials {
-  email: string
-  password: string
+interface CreateInvoiceData {
+  issueDate: string              // ISO 8601 format
+  invoiceNumber: string          // 1-60 chars, no " ' < > =
+  externalId: string             // 1-100 chars
+  totalAmount: number            // Total including taxes
+  customerName: string           // 1-120 chars
+  customerTaxId: string          // NIF/CIF
+  emitterName: string            // 1-120 chars
+  emitterTaxId: string           // NIF/CIF
+  taxLines: InvoiceTaxLine[]     // Minimum 1 required
+  currency?: string              // Default: "EUR"
+  type?: 'F1' | 'F2' | 'F3' | 'R1' | 'R2' | 'R3' | 'R4'  // Default: "F1"
+  description?: string           // 1-500 chars
+  rectifiedInvoiceIds?: string[] // Required for R1-R4
+}
+
+interface InvoiceTaxLine {
+  taxRate: number                // 0, 4, 5, 10, 21
+  baseAmount: number             // Base amount
+  taxAmount: number              // Tax amount
+  taxType?: string               // "01" (IVA), "02" (IPSI), "03" (IGIC), "04" (Otros)
+  surchargeAmount?: number       // Surcharge amount
+  surchargeRate?: number         // 0.5, 0.62, 1.4, 1.75, 5.2
+  taxExemptionReason?: string    // E1-E6
+  regimeKey?: string             // "01"-"19"
+}
+
+interface CreateInvoiceResult {
+  success: boolean
+  invoiceId: string              // UUID of created invoice
+  chainIndex: number             // Index in VeriFactu chain
 }
 
 interface AuthResponse {
   access_token: string
   refresh_token: string
   expires_in: number
-  user: {
-    id: string
-    email: string
-  }
+  user: User
 }
 
 interface User {
   id: string
   email: string
 }
-
-type OAuthProvider = 'google' | 'github' | 'azure' | 'facebook'
-type Environment = 'production' | 'development'
 ```
 
 ### Error Classes
@@ -315,28 +408,50 @@ import {
   TokenExpiredError,
   NetworkError,
   InvalidTokenError,
-  OAuthError,
-} from '@calltek/auth-sdk'
+} from 'invo-sdk'
+
+try {
+  await sdk.login()
+} catch (error) {
+  if (error instanceof InvalidCredentialsError) {
+    console.error('Invalid email or password')
+  } else if (error instanceof NetworkError) {
+    console.error('Network error:', error.message)
+  } else if (error instanceof TokenExpiredError) {
+    console.error('Token expired')
+  }
+}
 ```
 
-## Publishing to npm
+## Invoice Types
 
-```bash
-cd packages/auth-sdk
+- **F1**: Factura completa (Complete invoice)
+- **F2**: Factura simplificada (Simplified invoice, max 3000€)
+- **F3**: Factura sustitutiva (Substitutive invoice)
+- **R1-R4**: Facturas rectificativas (Corrective invoices)
 
-# Build the package
-npm run build
+## Tax Exemption Reasons
 
-# Login to npm
-npm login
+- **E1**: Exenta - Art. 20 Ley IVA
+- **E2**: Exenta - Art. 21 Ley IVA
+- **E3**: Exenta - Art. 22 Ley IVA
+- **E4**: Exenta - Art. 23 Ley IVA
+- **E5**: Exenta - Art. 24 Ley IVA
+- **E6**: Exenta - Otras
 
-# Publish (first time)
-npm publish --access public
+## Important Validations
 
-# Update version and publish
-npm version patch  # or minor, or major
-npm publish
-```
+- **Minimum date**: 2024-10-28 (VeriFactu minimum date)
+- **No future dates**: Invoices cannot be dated in the future
+- **F2 maximum**: 3000€ for simplified invoices
+- **Prohibited characters in invoiceNumber**: `" ' < > =`
+- **Tax lines**: Minimum 1 required
+- **Valid surcharge rates**: Only specific combinations (IVA 21%→5.2%, etc.)
+
+## Environment URLs
+
+- **Production**: `https://api.invo.rest`
+- **Sandbox**: `https://sandbox.invo.rest`
 
 ## Development
 
@@ -352,6 +467,22 @@ npm run build:watch
 
 # Clean
 npm run clean
+
+# Generate types from Swagger
+npm run types          # Production
+npm run types:sandbox  # Sandbox
+```
+
+## Migration from Legacy Client
+
+If you were using the old `createAuthClient`, it's still available for backward compatibility but is deprecated:
+
+```typescript
+// Old way (deprecated, still works for frontend apps)
+import { createAuthClient } from 'invo-sdk'
+
+// New way (recommended for backend)
+import { createInvoSDK } from 'invo-sdk'
 ```
 
 ## License
@@ -360,4 +491,4 @@ MIT
 
 ## Support
 
-For issues and questions, please open an issue on [GitHub](https://github.com/calltek/bf-verifactu/issues).
+For issues and questions, please open an issue on [GitHub](https://github.com/calltek/invo-sdk/issues).
