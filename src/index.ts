@@ -13,16 +13,20 @@ export type {
     // SDK Config
     InvoSDKConfig,
     // Custom types
-    User,
     DecodedToken,
     CreateInvoiceResult,
     // Auto-generated API types
+    UserDto,
     LoginDto,
     LoginResponseDto,
     OAuthCallbackDto,
     InvoiceTaxLineDto,
     CreateInvoiceDto,
     UpdateBatchStatusDto,
+    MakeupPDFDto,
+    MakeupPDFBrandDto,
+    MakeupPDFClientDto,
+    MakeupPDFBusinessDto,
 } from './types'
 
 // Errors

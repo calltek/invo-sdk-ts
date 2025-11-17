@@ -21,7 +21,9 @@
         "build": "tsc",
         "build:watch": "tsc --watch",
         "clean": "rm -rf dist",
-        "test": "npx tsx test/test.ts",
+        "test:invoice": "npx tsx test/test-invoice.ts",
+        "test:makeup": "npx tsx test/test-makeup.ts",
+        "test:reader": "npx tsx test/test-reader.ts",
         "prepublishOnly": "npm run clean && npm run build",
         "types:sandbox": "npx tsx ./swagger.ts sandbox",
         "types": "npx tsx ./swagger.ts"

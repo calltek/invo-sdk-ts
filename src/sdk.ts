@@ -1,10 +1,8 @@
 import { AuthError, InvalidCredentialsError, NetworkError, TokenExpiredError } from './errors'
 import { decodeJWT, isTokenExpired } from './utils'
-import type { LoginResponseDto } from './types/api.types'
-import type { User } from './types/auth.types'
-import type { CreateInvoiceResult } from './types/invoice.types'
+import type { LoginResponseDto, UserDto, CreateInvoiceDto, MakeupPDFDto } from './types/api.types'
+import type { CreateInvoiceResult } from './types/index'
 import type { InvoSDKConfig } from './types/sdk.types'
-import type { CreateInvoiceDto } from './types/api.types'
 
 /**
  * INVO SDK for backend applications
@@ -23,7 +21,7 @@ export class InvoSDK {
     // Token storage in memory
     private accessToken: string | null = null
     private refreshToken: string | null = null
-    private user: User | null = null
+    private user: UserDto | null = null
     private refreshTimer: ReturnType<typeof setTimeout> | null = null
 
     constructor(config: InvoSDKConfig) {
@@ -58,12 +56,17 @@ export class InvoSDK {
         method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
         body?: unknown,
         requiresAuth = true,
+        options?: {
+            responseType?: 'json' | 'arrayBuffer'
+            contentType?: string | null
+        },
     ): Promise<T> {
         try {
             const url = `${this.apiUrl}${endpoint}`
-            const headers: HeadersInit = {
-                'Content-Type': 'application/json',
-                'X-Environment': this.environment,
+            const headers: HeadersInit = {}
+
+            if (options?.contentType !== null) {
+                headers['Content-Type'] = options?.contentType || 'application/json'
             }
 
             // Add authorization header if required
@@ -81,10 +84,20 @@ export class InvoSDK {
                 headers['Authorization'] = `Bearer ${this.accessToken}`
             }
 
+            // Prepare body based on content type
+            let requestBody: string | FormData | undefined
+            if (body) {
+                if (body instanceof FormData) {
+                    requestBody = body
+                } else {
+                    requestBody = JSON.stringify(body)
+                }
+            }
+
             const response = await fetch(url, {
                 method,
                 headers,
-                body: body ? JSON.stringify(body) : undefined,
+                body: requestBody,
             })
 
             if (!response.ok) {
@@ -97,6 +110,28 @@ export class InvoSDK {
                 }
 
                 throw new AuthError(error.message || 'Request failed', response.status)
+            }
+
+            // Return based on response type
+            if (options?.responseType === 'arrayBuffer') {
+                const contentType = response.headers.get('content-type') || ''
+
+                // Handle case where server returns JSON with Buffer object
+                if (contentType.includes('application/json')) {
+                    const jsonResponse = await response.json()
+
+                    // Check if response contains a Buffer object (Node.js Buffer format)
+                    if (jsonResponse.invoice && jsonResponse.invoice.type === 'Buffer' && Array.isArray(jsonResponse.invoice.data)) {
+                        // Convert the array of bytes to ArrayBuffer
+                        const uint8Array = new Uint8Array(jsonResponse.invoice.data)
+                        return uint8Array.buffer as T
+                    }
+
+                    throw new Error('Expected binary PDF or Buffer object in JSON response')
+                }
+
+                // Direct binary response
+                return (await response.arrayBuffer()) as T
             }
 
             return response.json()
@@ -120,7 +155,7 @@ export class InvoSDK {
     private saveTokens(response: LoginResponseDto): void {
         this.accessToken = response.access_token
         this.refreshToken = response.refresh_token
-        this.user = response.user as User
+        this.user = response.user
 
         if (this.autoRefresh) {
             this.setupAutoRefresh()
@@ -228,7 +263,7 @@ export class InvoSDK {
     /**
      * Get current user
      */
-    getUser(): User | null {
+    getUser(): UserDto | null {
         return this.user
     }
 
@@ -287,6 +322,84 @@ export class InvoSDK {
      */
     async createInvoice(data: CreateInvoiceDto): Promise<CreateInvoiceResult> {
         return this.apiRequest<CreateInvoiceResult>('/invoice/store', 'POST', data)
+    }
+
+    /**
+     * Read invoice data from uploaded file
+     *
+     * @param file - The invoice file to read (PDF, XML, etc.)
+     * @returns Parsed invoice data
+     *
+     * @example
+     * ```typescript
+     * const fs = require('fs')
+     * const fileBuffer = fs.readFileSync('invoice.pdf')
+     * const file = new File([fileBuffer], 'invoice.pdf', { type: 'application/pdf' })
+     * const invoiceData = await sdk.readInvoice(file)
+     * ```
+     */
+    async readInvoice(file: File | Blob): Promise<any> {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        return this.apiRequest<any>('/reader', 'POST', formData, true, {
+            contentType: null,
+        })
+    }
+
+    /**
+     * Generate a PDF invoice with custom branding
+     *
+     * @param data - Invoice makeup configuration
+     * @returns PDF as ArrayBuffer
+     *
+     * @example
+     * ```typescript
+     * const pdfBuffer = await sdk.makeupInvoice({
+     *   id: 'INV-2024-001',
+     *   date: '2024-01-15',
+     *   branding: {
+     *     logo: 'https://example.com/logo.png',
+     *     favicon: 'https://example.com/favicon.ico',
+     *     accent_color: '#ff0000',
+     *     foreground_color: '#ffffff'
+     *   },
+     *   client: {
+     *     name: 'John Doe',
+     *     cif: '12345678A',
+     *     address: 'Street 123',
+     *     phone: '+34 666 123 123',
+     *     email: 'john@example.com'
+     *   },
+     *   business: {
+     *     name: 'Business SL',
+     *     cif: 'B12345678',
+     *     address: 'Avenue 456',
+     *     phone: '+34 911 123 123',
+     *     email: 'business@example.com'
+     *   },
+     *   total: 1210,
+     *   subtotal: 1000,
+     *   tax_value: 210,
+     *   tax_percent: 21,
+     *   surcharge_value: 0,
+     *   surcharge_percent: 0,
+     *   observations: 'Thank you!',
+     *   payment_instructions: 'Bank transfer to ES00...',
+     *   RGPD: 'GDPR compliance text',
+     *   type: 'invoice',
+     *   template: 'classic',
+     *   concepts: []
+     * })
+     * // Save the PDF
+     * const fs = require('fs')
+     * fs.writeFileSync('invoice.pdf', Buffer.from(pdfBuffer))
+     * ```
+     */
+    async makeupInvoice(data: MakeupPDFDto): Promise<ArrayBuffer> {
+        return this.apiRequest<ArrayBuffer>('/makeup', 'POST', data, true, {
+            responseType: 'arrayBuffer',
+        })
     }
 
     /**

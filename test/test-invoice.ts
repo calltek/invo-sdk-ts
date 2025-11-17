@@ -12,7 +12,7 @@ import { createInvoSDK } from '../src/sdk'
 // Load environment variables from .env file in project root
 config({ path: resolve(__dirname, '../.env') })
 
-// Configuration - Replace with your credentials
+// Configuration
 const TEST_EMAIL = process.env.INVO_EMAIL || 'your-email@example.com'
 const TEST_PASSWORD = process.env.INVO_PASSWORD || 'your-password'
 const TEST_ENVIRONMENT = (process.env.INVO_ENV as 'production' | 'sandbox') || 'sandbox'
@@ -76,10 +76,10 @@ async function main() {
             invoiceNumber: `TEST-${Date.now()}`,
             externalId: `test-order-${Date.now()}`,
             totalAmount: 1210.0,
-            customerName: TEST_NAME,
-            customerTaxId: TEST_NIF,
-            emitterName: TEST_NAME,
-            emitterTaxId: TEST_NIF,
+            customerName: TEST_NAME || 'Test Customer',
+            customerTaxId: TEST_NIF || 'CIF12345678',
+            emitterName: TEST_NAME || 'Test Emitter',
+            emitterTaxId: TEST_NIF || 'CIF87654321',
             type: 'F1' as const,
             description: 'Factura de prueba del SDK',
             taxLines: [
