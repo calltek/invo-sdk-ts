@@ -463,75 +463,7 @@ export class InvoSDK {
         return response
     }
 
-    /**
-     * Create a new API Token
-     *
-     * @param data - Token configuration
-     * @returns Created token with secret (only shown once)
-     *
-     * @example
-     * ```typescript
-     * const token = await sdk.createApiToken({
-     *   name: 'Partner ABC - Integration',
-     *   expires_in: 365 // Days
-     * })
-     *
-     * console.log('Token created:', token.token)
-     * console.log('⚠️ Save this token securely, it won\'t be shown again')
-     * ```
-     */
-    async createApiToken(data: CreateApiTokenDto): Promise<ApiTokenResponse> {
-        return this.apiRequest<ApiTokenResponse>('/api-token', 'POST', data)
-    }
-
-    /**
-     * List all API Tokens for the authenticated user
-     *
-     * @returns List of tokens (without secrets)
-     *
-     * @example
-     * ```typescript
-     * const tokens = await sdk.listApiTokens()
-     * tokens.forEach(token => {
-     *   console.log(`${token.name}: ${token.prefix}...`)
-     *   console.log(`  Last used: ${token.last_used_at || 'Never'}`)
-     * })
-     * ```
-     */
-    async listApiTokens(): Promise<ApiTokenListItem[]> {
-        return this.apiRequest<ApiTokenListItem[]>('/api-token', 'GET')
-    }
-
-    /**
-     * Get details of a specific API Token
-     *
-     * @param tokenId - Token ID
-     * @returns Token details
-     *
-     * @example
-     * ```typescript
-     * const token = await sdk.getApiToken('550e8400-e29b-41d4...')
-     * console.log('Token:', token.name)
-     * ```
-     */
-    async getApiToken(tokenId: string): Promise<ApiTokenListItem> {
-        return this.apiRequest<ApiTokenListItem>(`/api-token/${tokenId}`, 'GET')
-    }
-
-    /**
-     * Revoke an API Token
-     *
-     * @param tokenId - Token ID to revoke
-     *
-     * @example
-     * ```typescript
-     * await sdk.revokeApiToken('550e8400-e29b-41d4...')
-     * console.log('Token revoked successfully')
-     * ```
-     */
-    async revokeApiToken(tokenId: string): Promise<void> {
-        await this.apiRequest<void>(`/api-token/${tokenId}`, 'DELETE')
-    }
+ 
 
     /**
      * Make a generic authenticated request to any endpoint
