@@ -9,17 +9,18 @@ import type { LoginResponseDto } from './api.types'
  */
 export interface InvoSDKConfig {
     /**
-     * User email for authentication
+     * User email for authentication (required for email/password login)
      */
-    email: string
+    email?: string
 
     /**
-     * User password for authentication
+     * User password for authentication (required for email/password login)
      */
-    password: string
+    password?: string
 
     /**
      * Environment to use
+     * When using API tokens, this is auto-detected from the token prefix if not specified
      * @default 'production'
      */
     environment?: 'production' | 'sandbox'

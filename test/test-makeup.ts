@@ -67,8 +67,8 @@ async function main() {
             id: `INV-TEST-${Date.now()}`,
             date: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
             branding: {
-                logo: 'https://via.placeholder.com/200x80/4F46E5/ffffff?text=LOGO',
-                favicon: 'https://via.placeholder.com/32x32/4F46E5/ffffff?text=F',
+                logo: 'https://placehold.co/200x80',
+                favicon: 'https://placehold.co/32x32',
                 accent_color: '#4F46E5', // Indigo
                 foreground_color: '#ffffff', // White
             },

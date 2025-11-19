@@ -53,19 +53,28 @@ El script `test.ts` ejecuta las siguientes pruebas:
 - Envía la factura al endpoint `/invoice/store`
 - Verifica que se reciba un `invoiceId` y `chainIndex`
 
-### ✅ Test 4: Request Genérico
+### ✅ Test 4: Lectura de Factura (readInvoice)
+- Lee una factura desde un archivo PDF o XML
+- Verifica que se extraigan correctamente los datos de la factura
+
+### ✅ Test 5: Generación de PDF (makeupInvoice)
+- Genera un PDF de factura con branding personalizado
+- Verifica que se reciba un ArrayBuffer válido
+- Guarda el PDF generado para inspección
+
+### ✅ Test 6: Request Genérico
 - Prueba el método `sdk.request()` para llamar a cualquier endpoint
 - Intenta obtener datos del usuario autenticado
 
-### ✅ Test 5: Refresh Manual de Token
+### ✅ Test 7: Refresh Manual de Token
 - Ejecuta un refresh manual del token
 - Verifica que se obtengan nuevos tokens
 
-### ✅ Test 6: Cambio de Entorno
+### ✅ Test 8: Cambio de Entorno
 - Prueba cambiar entre `production` y `sandbox`
 - Verifica que el cambio se realice correctamente
 
-### ✅ Test 7: Logout
+### ✅ Test 9: Logout
 - Ejecuta el logout
 - Verifica que se limpien los tokens
 - Verifica que `isAuthenticated()` devuelva `false`
@@ -100,23 +109,34 @@ Configuration:
   Chain Index: 0
   Success: true
 
-🌐 Test 4: Generic API Request
+📖 Test 4: Read Invoice
+  Reading invoice from file...
+  ✅ Invoice read successfully!
+  Invoice data parsed
+
+🎨 Test 5: Generate PDF Invoice
+  Generating PDF with branding...
+  ✅ PDF generated successfully!
+  PDF size: 15234 bytes
+  Saved to: test-invoice.pdf
+
+🌐 Test 6: Generic API Request
   Making request to /auth/me...
   ✅ Request successful!
 
-🔄 Test 5: Manual Token Refresh
+🔄 Test 7: Manual Token Refresh
   Refreshing token manually...
   ✅ Token refreshed successfully!
   New token expires in: 3600 seconds
 
-🔀 Test 6: Environment Switching
+🔀 Test 8: Environment Switching
   Current environment: sandbox
   Switched to: production
   Switched back to: sandbox
 
-👋 Test 7: Logout
+👋 Test 9: Logout
   Logging out...
-  Is authenticated after logout: ✅
+  Is authenticated after logout: ❌
   Access token after logout: null (✅)
 
 🎉 All tests completed successfully!
@@ -193,6 +213,66 @@ const invoiceData = {
         }
     ]
 }
+```
+
+### Probar lectura de factura desde archivo
+
+```typescript
+import fs from 'fs'
+
+// Leer factura desde PDF
+const fileBuffer = fs.readFileSync('path/to/invoice.pdf')
+const file = new File([fileBuffer], 'invoice.pdf', { type: 'application/pdf' })
+
+const invoiceData = await sdk.readInvoice(file)
+console.log('Datos de la factura:', invoiceData)
+```
+
+### Probar generación de PDF
+
+```typescript
+import fs from 'fs'
+
+const pdfBuffer = await sdk.makeupInvoice({
+    id: 'TEST-001',
+    date: '2024-01-15',
+    branding: {
+        logo: 'https://example.com/logo.png',
+        favicon: 'https://example.com/favicon.ico',
+        accent_color: '#0066cc',
+        foreground_color: '#ffffff'
+    },
+    client: {
+        name: 'Cliente Test',
+        cif: '12345678A',
+        address: 'Calle Test 123',
+        phone: '+34 666 123 123',
+        email: 'test@example.com'
+    },
+    business: {
+        name: 'Empresa Test SL',
+        cif: 'B87654321',
+        address: 'Avenida Test 456',
+        phone: '+34 911 123 123',
+        email: 'empresa@example.com'
+    },
+    total: 1210,
+    subtotal: 1000,
+    tax_value: 210,
+    tax_percent: 21,
+    surcharge_value: 0,
+    surcharge_percent: 0,
+    observations: 'Gracias por su compra',
+    payment_instructions: 'Transferencia a ES00 0000 0000 0000 0000 0000',
+    RGPD: 'Datos protegidos según RGPD',
+    type: 'invoice',
+    template: 'classic',
+    concepts: []
+})
+
+// Guardar el PDF generado
+fs.writeFileSync('test-invoice.pdf', Buffer.from(pdfBuffer))
+console.log('PDF generado: test-invoice.pdf')
 ```
 
 ## Testing en CI/CD

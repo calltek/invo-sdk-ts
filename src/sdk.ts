@@ -1,16 +1,36 @@
 import { AuthError, InvalidCredentialsError, NetworkError, TokenExpiredError } from './errors'
 import { decodeJWT, isTokenExpired } from './utils'
 import type { LoginResponseDto, UserDto, CreateInvoiceDto, MakeupPDFDto } from './types/api.types'
-import type { CreateInvoiceResult } from './types/index'
+import type {
+    CreateInvoiceResult,
+    CreateApiTokenDto,
+    ApiTokenResponse,
+    ApiTokenListItem,
+} from './types/index'
 import type { InvoSDKConfig } from './types/sdk.types'
+
+/**
+ * Detect environment from API token prefix
+ * @param apiToken - API token to analyze
+ * @returns Detected environment or null if cannot be detected
+ */
+function detectEnvironmentFromToken(apiToken: string): 'production' | 'sandbox' | null {
+    if (apiToken.startsWith('invo_tok_prod_')) {
+        return 'production'
+    }
+    if (apiToken.startsWith('invo_tok_sand_')) {
+        return 'sandbox'
+    }
+    return null
+}
 
 /**
  * INVO SDK for backend applications
  * Provides authentication and invoice management functionality
  */
 export class InvoSDK {
-    private email: string
-    private password: string
+    private email?: string
+    private password?: string
     private environment: 'production' | 'sandbox'
     private autoRefresh: boolean
     private refreshBuffer: number
@@ -121,7 +141,11 @@ export class InvoSDK {
                     const jsonResponse = await response.json()
 
                     // Check if response contains a Buffer object (Node.js Buffer format)
-                    if (jsonResponse.invoice && jsonResponse.invoice.type === 'Buffer' && Array.isArray(jsonResponse.invoice.data)) {
+                    if (
+                        jsonResponse.invoice &&
+                        jsonResponse.invoice.type === 'Buffer' &&
+                        Array.isArray(jsonResponse.invoice.data)
+                    ) {
                         // Convert the array of bytes to ArrayBuffer
                         const uint8Array = new Uint8Array(jsonResponse.invoice.data)
                         return uint8Array.buffer as T
@@ -195,6 +219,12 @@ export class InvoSDK {
      * Login with email and password
      */
     async login(): Promise<LoginResponseDto> {
+        if (!this.email || !this.password) {
+            throw new Error(
+                'Email and password are required for login. Use loginWithToken() for API token authentication.',
+            )
+        }
+
         const response = await this.apiRequest<LoginResponseDto>(
             '/auth/login',
             'POST',
@@ -403,6 +433,107 @@ export class InvoSDK {
     }
 
     /**
+     * Login with API Token
+     *
+     * **Recommended:** Use `createInvoSDKWithToken()` instead for a simpler API.
+     *
+     * @param apiToken - API token for authentication
+     * @returns Authentication response with access token
+     *
+     * @example
+     * ```typescript
+     * // Using the helper (recommended)
+     * const sdk = await createInvoSDKWithToken('invo_tok_prod_abc123...')
+     *
+     * // Or manually
+     * const sdk = new InvoSDK({ environment: 'production' })
+     * const response = await sdk.loginWithToken('invo_tok_prod_abc123...')
+     * console.log('Authenticated:', response.user.email)
+     * ```
+     */
+    async loginWithToken(apiToken: string): Promise<LoginResponseDto> {
+        const response = await this.apiRequest<LoginResponseDto>(
+            '/auth/token',
+            'POST',
+            { api_token: apiToken },
+            false, // Don't require auth for login
+        )
+
+        this.saveTokens(response)
+        return response
+    }
+
+    /**
+     * Create a new API Token
+     *
+     * @param data - Token configuration
+     * @returns Created token with secret (only shown once)
+     *
+     * @example
+     * ```typescript
+     * const token = await sdk.createApiToken({
+     *   name: 'Partner ABC - Integration',
+     *   expires_in: 365 // Days
+     * })
+     *
+     * console.log('Token created:', token.token)
+     * console.log('⚠️ Save this token securely, it won\'t be shown again')
+     * ```
+     */
+    async createApiToken(data: CreateApiTokenDto): Promise<ApiTokenResponse> {
+        return this.apiRequest<ApiTokenResponse>('/api-token', 'POST', data)
+    }
+
+    /**
+     * List all API Tokens for the authenticated user
+     *
+     * @returns List of tokens (without secrets)
+     *
+     * @example
+     * ```typescript
+     * const tokens = await sdk.listApiTokens()
+     * tokens.forEach(token => {
+     *   console.log(`${token.name}: ${token.prefix}...`)
+     *   console.log(`  Last used: ${token.last_used_at || 'Never'}`)
+     * })
+     * ```
+     */
+    async listApiTokens(): Promise<ApiTokenListItem[]> {
+        return this.apiRequest<ApiTokenListItem[]>('/api-token', 'GET')
+    }
+
+    /**
+     * Get details of a specific API Token
+     *
+     * @param tokenId - Token ID
+     * @returns Token details
+     *
+     * @example
+     * ```typescript
+     * const token = await sdk.getApiToken('550e8400-e29b-41d4...')
+     * console.log('Token:', token.name)
+     * ```
+     */
+    async getApiToken(tokenId: string): Promise<ApiTokenListItem> {
+        return this.apiRequest<ApiTokenListItem>(`/api-token/${tokenId}`, 'GET')
+    }
+
+    /**
+     * Revoke an API Token
+     *
+     * @param tokenId - Token ID to revoke
+     *
+     * @example
+     * ```typescript
+     * await sdk.revokeApiToken('550e8400-e29b-41d4...')
+     * console.log('Token revoked successfully')
+     * ```
+     */
+    async revokeApiToken(tokenId: string): Promise<void> {
+        await this.apiRequest<void>(`/api-token/${tokenId}`, 'DELETE')
+    }
+
+    /**
      * Make a generic authenticated request to any endpoint
      *
      * @param endpoint - The API endpoint (e.g., '/users/me')
@@ -416,6 +547,56 @@ export class InvoSDK {
     ): Promise<T> {
         return this.apiRequest<T>(endpoint, method, body)
     }
+}
+
+/**
+ * Create SDK instance with API Token authentication
+ *
+ * Automatically detects the environment from the token prefix:
+ * - `invo_tok_prod_*` → production
+ * - `invo_tok_sand_*` → sandbox
+ *
+ * @param apiToken - API token for authentication
+ * @param config - Optional SDK configuration (environment will be auto-detected if not provided)
+ * @returns SDK instance ready to use
+ *
+ * @example
+ * ```typescript
+ * import { createInvoSDKWithToken } from 'invo-sdk'
+ *
+ * // Environment is auto-detected from token prefix
+ * const sdk = await createInvoSDKWithToken('invo_tok_prod_abc123...')
+ *
+ * // Or explicitly specify environment
+ * const sdk = await createInvoSDKWithToken('invo_tok_prod_abc123...', {
+ *   environment: 'production'
+ * })
+ *
+ * // SDK is automatically authenticated and ready to use
+ * const invoice = await sdk.createInvoice({...})
+ * ```
+ */
+export async function createInvoSDKWithToken(
+    apiToken: string,
+    config?: Partial<Omit<InvoSDKConfig, 'email' | 'password'>>,
+): Promise<InvoSDK> {
+    // Auto-detect environment from token if not explicitly provided
+    const detectedEnv = detectEnvironmentFromToken(apiToken)
+    const environment = config?.environment || detectedEnv || 'production'
+
+    const sdk = new InvoSDK({
+        environment,
+        autoRefresh: config?.autoRefresh ?? false, // Tokens don't auto-refresh
+        refreshBuffer: config?.refreshBuffer,
+        onTokenRefreshed: config?.onTokenRefreshed,
+        onLogout: config?.onLogout,
+        onError: config?.onError,
+    })
+
+    // Auto-login with token
+    await sdk.loginWithToken(apiToken)
+
+    return sdk
 }
 
 /**

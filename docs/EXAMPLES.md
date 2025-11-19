@@ -5,366 +5,323 @@
 ### JavaScript (CommonJS)
 
 ```javascript
-const { createAuthClient } = require('@calltek/auth-sdk')
+const { createInvoSDK } = require('invo-sdk')
 
-const auth = createAuthClient({
-  apiUrl: 'https://api.example.com',
-  environment: 'production'
+const sdk = createInvoSDK({
+  email: process.env.INVO_EMAIL,
+  password: process.env.INVO_PASSWORD,
+  environment: 'production' // or 'sandbox'
 })
+
+// Login
+await sdk.login()
 ```
 
 ### TypeScript / ES Modules
 
 ```typescript
-import { createAuthClient } from '@calltek/auth-sdk'
+import { createInvoSDK } from 'invo-sdk'
 
-const auth = createAuthClient({
-  apiUrl: 'https://api.example.com',
+const sdk = createInvoSDK({
+  email: process.env.INVO_EMAIL,
+  password: process.env.INVO_PASSWORD,
+  environment: 'production' // or 'sandbox'
+})
+
+// Login
+await sdk.login()
+```
+
+## Creating Invoices
+
+### Simple Invoice
+
+```typescript
+import { createInvoSDK } from 'invo-sdk'
+
+const sdk = createInvoSDK({
+  email: process.env.INVO_EMAIL!,
+  password: process.env.INVO_PASSWORD!,
   environment: 'production'
 })
+
+await sdk.login()
+
+const result = await sdk.createInvoice({
+  issueDate: new Date().toISOString(),
+  invoiceNumber: 'FAC-2024-001',
+  externalId: 'order-12345',
+  totalAmount: 1210.00,
+  customerName: 'Cliente SL',
+  customerTaxId: 'B12345678',
+  emitterName: 'Mi Empresa SL',
+  emitterTaxId: 'B87654321',
+  description: 'Servicios de consultoría',
+  taxLines: [
+    {
+      taxRate: 21,
+      baseAmount: 1000.00,
+      taxAmount: 210.00
+    }
+  ]
+})
+
+console.log('Invoice created:', result.invoiceId)
 ```
 
-## React Integration
-
-### With Context
+### Invoice with Multiple Tax Rates
 
 ```typescript
-// AuthContext.tsx
-import React, { createContext, useContext, useState, useEffect } from 'react'
-import { createAuthClient, AuthClient, User } from '@calltek/auth-sdk'
+const result = await sdk.createInvoice({
+  issueDate: new Date().toISOString(),
+  invoiceNumber: 'FAC-2024-002',
+  externalId: 'multi-tax-001',
+  totalAmount: 1864.00,
+  customerName: 'Cliente SL',
+  customerTaxId: 'B12345678',
+  emitterName: 'Mi Empresa SL',
+  emitterTaxId: 'B87654321',
+  description: 'Venta mixta de productos',
+  taxLines: [
+    {
+      taxRate: 21,
+      baseAmount: 1000.00,
+      taxAmount: 210.00
+    },
+    {
+      taxRate: 10,
+      baseAmount: 500.00,
+      taxAmount: 50.00
+    },
+    {
+      taxRate: 4,
+      baseAmount: 100.00,
+      taxAmount: 4.00
+    }
+  ]
+})
+```
 
-interface AuthContextType {
-  user: User | null
-  login: (email: string, password: string) => Promise<void>
-  logout: () => void
-  isAuthenticated: boolean
-}
+## Reading Invoices from Files
 
-const AuthContext = createContext<AuthContextType | null>(null)
+### Read PDF Invoice
 
-const authClient = createAuthClient({
-  apiUrl: process.env.REACT_APP_API_URL!,
-  onLogout: () => {
-    // Handle logout (e.g., redirect)
-    window.location.href = '/login'
+```typescript
+import { createInvoSDK } from 'invo-sdk'
+import fs from 'fs'
+
+const sdk = createInvoSDK({
+  email: process.env.INVO_EMAIL!,
+  password: process.env.INVO_PASSWORD!,
+  environment: 'production'
+})
+
+await sdk.login()
+
+// Read invoice from PDF
+const fileBuffer = fs.readFileSync('invoice.pdf')
+const file = new File([fileBuffer], 'invoice.pdf', { type: 'application/pdf' })
+
+const invoiceData = await sdk.readInvoice(file)
+console.log('Parsed invoice data:', invoiceData)
+```
+
+### Read XML Invoice
+
+```typescript
+const xmlBuffer = fs.readFileSync('invoice.xml')
+const xmlFile = new File([xmlBuffer], 'invoice.xml', { type: 'application/xml' })
+
+const invoiceData = await sdk.readInvoice(xmlFile)
+console.log('Parsed invoice:', invoiceData)
+```
+
+## Generating PDF Invoices
+
+### Generate PDF with Custom Branding
+
+```typescript
+import { createInvoSDK } from 'invo-sdk'
+import fs from 'fs'
+
+const sdk = createInvoSDK({
+  email: process.env.INVO_EMAIL!,
+  password: process.env.INVO_PASSWORD!,
+  environment: 'production'
+})
+
+await sdk.login()
+
+const pdfBuffer = await sdk.makeupInvoice({
+  id: 'INV-2024-001',
+  date: '2024-01-15',
+  branding: {
+    logo: 'https://example.com/logo.png',
+    favicon: 'https://example.com/favicon.ico',
+    accent_color: '#0066cc',
+    foreground_color: '#ffffff'
   },
+  client: {
+    name: 'John Doe',
+    cif: '12345678A',
+    address: 'Calle Ejemplo 123, Madrid',
+    phone: '+34 666 123 123',
+    email: 'john@example.com'
+  },
+  business: {
+    name: 'Business SL',
+    cif: 'B12345678',
+    address: 'Avenida Principal 456, Madrid',
+    phone: '+34 911 123 123',
+    email: 'business@example.com'
+  },
+  total: 1210,
+  subtotal: 1000,
+  tax_value: 210,
+  tax_percent: 21,
+  surcharge_value: 0,
+  surcharge_percent: 0,
+  observations: 'Gracias por su compra!',
+  payment_instructions: 'Transferencia bancaria a ES00 0000 0000 0000 0000 0000',
+  RGPD: 'Sus datos están protegidos según RGPD.',
+  type: 'invoice',
+  template: 'classic',
+  concepts: []
 })
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(authClient.getUser())
-
-  useEffect(() => {
-    // Check authentication on mount
-    if (authClient.isAuthenticated()) {
-      setUser(authClient.getUser())
-    }
-  }, [])
-
-  const login = async (email: string, password: string) => {
-    const response = await authClient.login({ email, password })
-    setUser(response.user)
-  }
-
-  const logout = () => {
-    authClient.logout()
-    setUser(null)
-  }
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        login,
-        logout,
-        isAuthenticated: authClient.isAuthenticated(),
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  )
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider')
-  }
-  return context
-}
+// Save PDF to file
+fs.writeFileSync('generated-invoice.pdf', Buffer.from(pdfBuffer))
+console.log('PDF generado exitosamente!')
 ```
 
-### Login Component
+### Generate Budget PDF
 
 ```typescript
-// LoginForm.tsx
-import React, { useState } from 'react'
-import { useAuth } from './AuthContext'
-
-export function LoginForm() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const { login } = useAuth()
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-
-    try {
-      await login(email, password)
-      // Redirect on success
-      window.location.href = '/dashboard'
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="Email"
-        required
-      />
-      <input
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        placeholder="Password"
-        required
-      />
-      {error && <div className="error">{error}</div>}
-      <button type="submit">Login</button>
-    </form>
-  )
-}
-```
-
-### Protected Route
-
-```typescript
-// ProtectedRoute.tsx
-import React from 'react'
-import { Navigate } from 'react-router-dom'
-import { useAuth } from './AuthContext'
-
-interface ProtectedRouteProps {
-  children: React.ReactNode
-}
-
-export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated } = useAuth()
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
-  }
-
-  return <>{children}</>
-}
-```
-
-## Vue 3 Integration
-
-### Composable
-
-```typescript
-// composables/useAuth.ts
-import { ref, computed } from 'vue'
-import { createAuthClient, type User } from '@calltek/auth-sdk'
-
-const authClient = createAuthClient({
-  apiUrl: import.meta.env.VITE_API_URL,
+const pdfBuffer = await sdk.makeupInvoice({
+  id: 'PRES-2024-001',
+  date: '2024-01-15',
+  type: 'budget', // Changed to budget
+  // ... rest of the configuration
 })
 
-const user = ref<User | null>(authClient.getUser())
-
-export function useAuth() {
-  const isAuthenticated = computed(() => authClient.isAuthenticated())
-
-  const login = async (email: string, password: string) => {
-    const response = await authClient.login({ email, password })
-    user.value = response.user
-  }
-
-  const logout = () => {
-    authClient.logout()
-    user.value = null
-  }
-
-  return {
-    user,
-    isAuthenticated,
-    login,
-    logout,
-    getAccessToken: () => authClient.getAccessToken(),
-  }
-}
-```
-
-### Login Component
-
-```vue
-<!-- LoginForm.vue -->
-<template>
-  <form @submit.prevent="handleLogin">
-    <input v-model="email" type="email" placeholder="Email" required />
-    <input v-model="password" type="password" placeholder="Password" required />
-    <div v-if="error" class="error">{{ error }}</div>
-    <button type="submit">Login</button>
-  </form>
-</template>
-
-<script setup lang="ts">
-import { ref } from 'vue'
-import { useAuth } from '@/composables/useAuth'
-import { useRouter } from 'vue-router'
-
-const { login } = useAuth()
-const router = useRouter()
-
-const email = ref('')
-const password = ref('')
-const error = ref('')
-
-const handleLogin = async () => {
-  error.value = ''
-  try {
-    await login(email.value, password.value)
-    router.push('/dashboard')
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Login failed'
-  }
-}
-</script>
-```
-
-## Angular Integration
-
-### Auth Service
-
-```typescript
-// auth.service.ts
-import { Injectable } from '@angular/core'
-import { createAuthClient, AuthClient, User } from '@calltek/auth-sdk'
-import { BehaviorSubject, Observable } from 'rxjs'
-
-@Injectable({
-  providedIn: 'root',
-})
-export class AuthService {
-  private authClient: AuthClient
-  private userSubject = new BehaviorSubject<User | null>(null)
-
-  public user$: Observable<User | null> = this.userSubject.asObservable()
-
-  constructor() {
-    this.authClient = createAuthClient({
-      apiUrl: environment.apiUrl,
-      onLogout: () => this.userSubject.next(null),
-    })
-
-    // Initialize user if authenticated
-    if (this.authClient.isAuthenticated()) {
-      this.userSubject.next(this.authClient.getUser())
-    }
-  }
-
-  async login(email: string, password: string): Promise<void> {
-    const response = await this.authClient.login({ email, password })
-    this.userSubject.next(response.user)
-  }
-
-  logout(): void {
-    this.authClient.logout()
-  }
-
-  isAuthenticated(): boolean {
-    return this.authClient.isAuthenticated()
-  }
-
-  getAccessToken(): string | null {
-    return this.authClient.getAccessToken()
-  }
-}
-```
-
-### Auth Guard
-
-```typescript
-// auth.guard.ts
-import { Injectable } from '@angular/core'
-import { Router, CanActivate } from '@angular/router'
-import { AuthService } from './auth.service'
-
-@Injectable({
-  providedIn: 'root',
-})
-export class AuthGuard implements CanActivate {
-  constructor(
-    private authService: AuthService,
-    private router: Router,
-  ) {}
-
-  canActivate(): boolean {
-    if (this.authService.isAuthenticated()) {
-      return true
-    }
-
-    this.router.navigate(['/login'])
-    return false
-  }
-}
+fs.writeFileSync('budget.pdf', Buffer.from(pdfBuffer))
 ```
 
 ## Node.js / Express Integration
 
-### API Client
+### Express API Server
 
 ```typescript
-// apiClient.ts
-import { createAuthClient } from '@calltek/auth-sdk'
+import express from 'express'
+import { createInvoSDK } from 'invo-sdk'
 
-// Use memory storage for server-side
-const auth = createAuthClient({
-  apiUrl: process.env.API_URL!,
-  storage: 'memory',
+const app = express()
+app.use(express.json())
+
+// Initialize SDK
+const sdk = createInvoSDK({
+  email: process.env.INVO_EMAIL!,
+  password: process.env.INVO_PASSWORD!,
+  environment: 'production',
   autoRefresh: true,
+  onError: (error) => {
+    console.error('SDK Error:', error)
+  }
 })
 
-export async function makeAuthenticatedRequest(url: string, options = {}) {
-  const token = auth.getAccessToken()
+// Login on startup
+await sdk.login()
 
-  if (!token) {
-    throw new Error('Not authenticated')
+// Create invoice endpoint
+app.post('/api/invoices', async (req, res) => {
+  try {
+    const result = await sdk.createInvoice(req.body)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// Read invoice endpoint
+app.post('/api/invoices/read', async (req, res) => {
+  try {
+    const file = req.file // Using multer or similar
+    const invoiceData = await sdk.readInvoice(file)
+    res.json(invoiceData)
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// Generate PDF endpoint
+app.post('/api/invoices/pdf', async (req, res) => {
+  try {
+    const pdfBuffer = await sdk.makeupInvoice(req.body)
+    res.setHeader('Content-Type', 'application/pdf')
+    res.send(Buffer.from(pdfBuffer))
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.listen(3000, () => {
+  console.log('Server running on port 3000')
+})
+```
+
+### NestJS Service
+
+```typescript
+import { Injectable, OnModuleInit } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import { createInvoSDK, InvoSDK } from 'invo-sdk'
+
+@Injectable()
+export class InvoiceService implements OnModuleInit {
+  private sdk: InvoSDK
+
+  constructor(private configService: ConfigService) {
+    this.sdk = createInvoSDK({
+      email: this.configService.get('INVO_EMAIL')!,
+      password: this.configService.get('INVO_PASSWORD')!,
+      environment: this.configService.get('INVO_ENV') || 'production',
+    })
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      ...options.headers,
-      Authorization: `Bearer ${token}`,
-    },
-  })
+  async onModuleInit() {
+    await this.sdk.login()
+  }
 
-  return response.json()
+  async createInvoice(data: CreateInvoiceDto) {
+    return this.sdk.createInvoice(data)
+  }
+
+  async readInvoice(file: File) {
+    return this.sdk.readInvoice(file)
+  }
+
+  async generatePDF(data: MakeupPDFDto) {
+    return this.sdk.makeupInvoice(data)
+  }
 }
 ```
 
 ## Environment Switching
 
 ```typescript
-const auth = createAuthClient({
-  apiUrl: 'https://api.example.com',
-  environment: 'production',
+const sdk = createInvoSDK({
+  email: 'user@example.com',
+  password: 'password',
+  environment: 'sandbox',
 })
 
-// Switch to development
-auth.setEnvironment('development')
+await sdk.login()
 
-// All subsequent requests will use 'development' environment
-await auth.login({ email, password })
+// Switch to production
+sdk.setEnvironment('production')
+
+// All subsequent requests will use 'production' environment
+const result = await sdk.createInvoice({...})
 ```
 
 ## Error Handling
@@ -374,17 +331,32 @@ import {
   InvalidCredentialsError,
   TokenExpiredError,
   NetworkError,
-} from '@calltek/auth-sdk'
+  AuthError
+} from 'invo-sdk'
+
+const sdk = createInvoSDK({
+  email: 'user@example.com',
+  password: 'password',
+  environment: 'production',
+  onError: (error) => {
+    // Global error handler
+    console.error('SDK Error:', error)
+  }
+})
 
 try {
-  await auth.login({ email, password })
+  await sdk.login()
+  const result = await sdk.createInvoice({...})
 } catch (error) {
   if (error instanceof InvalidCredentialsError) {
     console.error('Wrong email or password')
   } else if (error instanceof TokenExpiredError) {
-    console.error('Session expired, please login again')
+    console.error('Session expired, refreshing token...')
+    await sdk.refreshAccessToken()
   } else if (error instanceof NetworkError) {
     console.error('Network error, check your connection')
+  } else if (error instanceof AuthError) {
+    console.error('Authentication error:', error.message)
   } else {
     console.error('Unexpected error:', error)
   }
@@ -393,11 +365,11 @@ try {
 
 ## Testing
 
-### Mock Auth Client
+### Mock SDK
 
 ```typescript
-// __mocks__/@calltek/auth-sdk.ts
-export const createAuthClient = jest.fn(() => ({
+// __mocks__/invo-sdk.ts
+export const createInvoSDK = jest.fn(() => ({
   login: jest.fn().mockResolvedValue({
     access_token: 'mock-token',
     refresh_token: 'mock-refresh',
@@ -408,27 +380,55 @@ export const createAuthClient = jest.fn(() => ({
   getUser: jest.fn().mockReturnValue({ id: '1', email: 'test@example.com' }),
   isAuthenticated: jest.fn().mockReturnValue(true),
   getAccessToken: jest.fn().mockReturnValue('mock-token'),
+  createInvoice: jest.fn().mockResolvedValue({
+    success: true,
+    invoiceId: 'uuid-123',
+    chainIndex: 0
+  }),
+  readInvoice: jest.fn().mockResolvedValue({
+    invoiceNumber: 'FAC-001',
+    total: 1210
+  }),
+  makeupInvoice: jest.fn().mockResolvedValue(new ArrayBuffer(1024)),
 }))
 ```
 
 ### Test Example
 
 ```typescript
-import { createAuthClient } from '@calltek/auth-sdk'
+import { createInvoSDK } from 'invo-sdk'
 
-jest.mock('@calltek/auth-sdk')
+jest.mock('invo-sdk')
 
-describe('Login', () => {
-  it('should login successfully', async () => {
-    const auth = createAuthClient({ apiUrl: 'http://test.com' })
-
-    const response = await auth.login({
+describe('Invoice Creation', () => {
+  it('should create invoice successfully', async () => {
+    const sdk = createInvoSDK({
       email: 'test@example.com',
       password: 'password',
+      environment: 'sandbox'
     })
 
-    expect(response.user.email).toBe('test@example.com')
-    expect(auth.isAuthenticated()).toBe(true)
+    await sdk.login()
+
+    const result = await sdk.createInvoice({
+      issueDate: new Date().toISOString(),
+      invoiceNumber: 'FAC-001',
+      externalId: 'test-001',
+      totalAmount: 1210,
+      customerName: 'Test Client',
+      customerTaxId: 'B12345678',
+      emitterName: 'Test Business',
+      emitterTaxId: 'B87654321',
+      taxLines: [
+        {
+          taxRate: 21,
+          baseAmount: 1000,
+          taxAmount: 210
+        }
+      ]
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.invoiceId).toBe('uuid-123')
   })
 })
-```

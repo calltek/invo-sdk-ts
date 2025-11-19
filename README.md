@@ -9,6 +9,9 @@ Backend SDK for INVO API - Authentication and Invoice Management with full TypeS
 ✅ **In-Memory Token Storage** - No dependencies on browser storage
 ✅ **Auto Token Refresh** - Automatically refreshes tokens before expiration
 ✅ **Invoice Management** - Create and manage VeriFactu invoices
+✅ **Invoice Reader** - Extract data from PDF and XML invoices
+✅ **PDF Generator** - Generate branded invoice PDFs
+✅ **API Tokens** - Generate tokens for subcontractors and integrations
 ✅ **Multi-Environment** - Production and sandbox modes
 ✅ **Zero Dependencies** - No external dependencies
 ✅ **Generic Request Method** - Call any API endpoint with authentication
@@ -213,6 +216,101 @@ const result = await sdk.createInvoice({
 })
 ```
 
+### Reading Invoice from File
+
+```typescript
+import fs from 'fs'
+
+// Read invoice from a PDF file
+const fileBuffer = fs.readFileSync('invoice.pdf')
+const file = new File([fileBuffer], 'invoice.pdf', { type: 'application/pdf' })
+
+const invoiceData = await sdk.readInvoice(file)
+console.log('Parsed invoice:', invoiceData)
+```
+
+### Generating PDF Invoice with Custom Branding
+
+```typescript
+import fs from 'fs'
+
+const pdfBuffer = await sdk.makeupInvoice({
+  id: 'INV-2024-001',
+  date: '2024-01-15',
+  branding: {
+    logo: 'https://example.com/logo.png',
+    favicon: 'https://example.com/favicon.ico',
+    accent_color: '#ff0000',
+    foreground_color: '#ffffff'
+  },
+  client: {
+    name: 'John Doe',
+    cif: '12345678A',
+    address: 'Street 123',
+    phone: '+34 666 123 123',
+    email: 'john@example.com'
+  },
+  business: {
+    name: 'Business SL',
+    cif: 'B12345678',
+    address: 'Avenue 456',
+    phone: '+34 911 123 123',
+    email: 'business@example.com'
+  },
+  total: 1210,
+  subtotal: 1000,
+  tax_value: 210,
+  tax_percent: 21,
+  surcharge_value: 0,
+  surcharge_percent: 0,
+  observations: 'Thank you for your business!',
+  payment_instructions: 'Bank transfer to ES00 0000 0000 0000 0000 0000',
+  RGPD: 'Your data is protected according to GDPR regulations.',
+  type: 'invoice',
+  template: 'classic',
+  concepts: []
+})
+
+// Save the PDF
+fs.writeFileSync('invoice.pdf', Buffer.from(pdfBuffer))
+console.log('PDF generated successfully!')
+```
+
+### API Tokens for Subcontractors
+
+```typescript
+// Create API Token
+const token = await sdk.createApiToken({
+  name: 'Partner ABC - Integration',
+  expires_in: 365 // Days (optional)
+})
+
+console.log('Token created:', token.token)
+console.log('⚠️ Save this token securely, it won\'t be shown again')
+
+// List tokens
+const tokens = await sdk.listApiTokens()
+tokens.forEach(t => {
+  console.log(`${t.name}: ${t.prefix}... (last used: ${t.last_used_at || 'Never'})`)
+})
+
+// Revoke token
+await sdk.revokeApiToken('token-id')
+```
+
+### Using API Tokens
+
+```typescript
+import { createInvoSDKWithToken } from 'invo-sdk'
+
+// Create SDK with API Token
+// Environment is auto-detected from token prefix (invo_tok_prod_* or invo_tok_sand_*)
+const sdk = await createInvoSDKWithToken('invo_tok_prod_abc123...')
+
+// SDK is ready to use - no login() needed
+const result = await sdk.createInvoice({...})
+```
+
 ### Generic API Requests
 
 ```typescript
@@ -329,6 +427,27 @@ Manually refresh the access token.
 #### `createInvoice(data: CreateInvoiceData): Promise<CreateInvoiceResult>`
 Create and submit a new invoice to the VeriFactu system.
 
+#### `readInvoice(file: File | Blob): Promise<any>`
+Read and parse invoice data from an uploaded file (PDF, XML, etc.).
+
+#### `makeupInvoice(data: MakeupPDFDto): Promise<ArrayBuffer>`
+Generate a PDF invoice with custom branding and styling.
+
+#### `loginWithToken(apiToken: string): Promise<LoginResponseDto>`
+Authenticate using an API Token instead of email/password.
+
+#### `createApiToken(data: CreateApiTokenDto): Promise<ApiTokenResponse>`
+Create a new API Token for subcontractors or integrations.
+
+#### `listApiTokens(): Promise<ApiTokenListItem[]>`
+List all API Tokens for the authenticated user.
+
+#### `getApiToken(tokenId: string): Promise<ApiTokenListItem>`
+Get details of a specific API Token.
+
+#### `revokeApiToken(tokenId: string): Promise<void>`
+Revoke an API Token (permanently disable it).
+
 #### `request<T>(endpoint: string, method?: 'GET' | 'POST' | 'PUT' | 'DELETE', body?: unknown): Promise<T>`
 Make a generic authenticated request to any API endpoint.
 
@@ -397,6 +516,43 @@ interface User {
   id: string
   email: string
 }
+
+interface MakeupPDFDto {
+  id: string                          // Invoice number/ID
+  date: string                        // Issue date
+  branding: {
+    logo: string                      // Logo URL
+    favicon: string                   // Favicon URL
+    accent_color: string              // Primary color (e.g., "#ff0000")
+    foreground_color: string          // Secondary color (e.g., "#ffffff")
+  }
+  client: {
+    name: string                      // Client name
+    cif: string                       // Client tax ID
+    address: string                   // Client address
+    phone: string                     // Client phone
+    email: string                     // Client email
+  }
+  business: {
+    name: string                      // Business name
+    cif: string                       // Business tax ID
+    address: string                   // Business address
+    phone: string                     // Business phone
+    email: string                     // Business email
+  }
+  total: number                       // Total amount
+  subtotal: number                    // Subtotal amount
+  tax_value: number                   // Tax amount
+  tax_percent: number                 // Tax percentage
+  surcharge_value: number             // Surcharge amount
+  surcharge_percent: number           // Surcharge percentage
+  observations: string                // Additional notes
+  payment_instructions: string        // Payment instructions
+  RGPD: string                        // GDPR text
+  type: 'invoice' | 'budget' | 'proforma'  // Document type
+  template: string                    // Template name (e.g., "classic")
+  concepts: any[][]                   // Line items/concepts
+}
 ```
 
 ### Error Classes
@@ -452,6 +608,42 @@ try {
 
 - **Production**: `https://api.invo.rest`
 - **Sandbox**: `https://sandbox.invo.rest`
+
+## API Tokens
+
+For detailed information about API Tokens, see [docs/API_TOKENS.md](./docs/API_TOKENS.md).
+
+### Quick Start with Tokens
+
+```typescript
+// 1. Main user creates token
+import { createInvoSDK } from 'invo-sdk'
+
+const mainSDK = createInvoSDK({
+  email: 'admin@company.com',
+  password: 'password123',
+  environment: 'production'
+})
+
+await mainSDK.login()
+
+const token = await mainSDK.createApiToken({
+  name: 'Partner ABC',
+  expires_in: 365
+})
+
+console.log('Share this token:', token.token)
+
+// 2. Partner uses token
+import { createInvoSDKWithToken } from 'invo-sdk'
+
+const partnerSDK = await createInvoSDKWithToken(token.token, {
+  environment: 'production'
+})
+
+// Partner can now create invoices
+const invoice = await partnerSDK.createInvoice({...})
+```
 
 ## Development
 
