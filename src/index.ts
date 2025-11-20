@@ -37,7 +37,7 @@ export {
     NetworkError,
     OAuthError,
     TokenExpiredError,
-} from './errors'
+} from './errors.js'
 
 // Utilities
 export { decodeJWT, getSecondsUntilExpiration, isTokenExpired, isValidEmail } from './utils.js'
