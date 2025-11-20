@@ -191,7 +191,7 @@ El SDK detecta automáticamente el entorno según el prefijo del token.
 **Importante:** La gestión de tokens (creación, listado, revocación) se realiza a través de la plataforma web de INVO, no mediante este SDK.
 
 Para obtener un token:
-1. Accede a tu cuenta en [INVO](https://invo.rest)
+1. Accede a tu cuenta en [INVO](https://api.invo.rest)
 2. Ve a la sección de API Tokens
 3. Crea un nuevo token
 4. Guárdalo de forma segura (solo se muestra una vez)
