@@ -5,9 +5,9 @@
  *
  */
 // Main SDK
-export { createInvoSDK, createInvoSDKWithToken, InvoSDK } from './sdk';
+export { createInvoSDK, createInvoSDKWithToken, InvoSDK } from './sdk.js';
 // Errors
-export { AuthError, InvalidCredentialsError, InvalidTokenError, NetworkError, OAuthError, TokenExpiredError, } from './errors';
+export { AuthError, InvalidCredentialsError, InvalidTokenError, NetworkError, OAuthError, TokenExpiredError, } from './errors.js';
 // Utilities
-export { decodeJWT, getSecondsUntilExpiration, isTokenExpired, isValidEmail } from './utils';
+export { decodeJWT, getSecondsUntilExpiration, isTokenExpired, isValidEmail } from './utils.js';
 //# sourceMappingURL=index.js.map
