@@ -43,12 +43,15 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/calltek/invo-auth-sdk.git"
+        "url": "https://github.com/calltek/invo-sdk-ts.git"
     },
     "bugs": {
-        "url": "https://github.com/calltek/invo-auth-sdk/issues"
+        "url": "https://github.com/calltek/invo-sdk-ts/issues"
     },
-    "homepage": "https://github.com/calltek/invo-auth-sdk#readme",
+    "homepage": "https://github.com/calltek/invo-sdk-ts#readme",
+    "dependencies": {
+        "typescript": "^5.9.3"
+    },
     "devDependencies": {
         "@types/node": "^24.10.1",
         "@typescript-eslint/eslint-plugin": "^8.46.4",
@@ -58,8 +61,7 @@
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-prettier": "^5.5.4",
         "prettier": "^3.6.2",
-        "swagger-typescript-api": "^13.2.16",
-        "typescript": "^5.9.3"
+        "swagger-typescript-api": "^13.2.16"
     },
     "engines": {
         "node": ">=14.0.0"
