@@ -6,7 +6,7 @@
  */
 
 // Main SDK
-export { createInvoSDK, InvoSDK } from './sdk'
+export { createInvoSDK, createInvoSDKWithToken, InvoSDK } from './sdk'
 
 // Types
 export type {

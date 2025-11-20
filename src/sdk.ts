@@ -1,12 +1,7 @@
 import { AuthError, InvalidCredentialsError, NetworkError, TokenExpiredError } from './errors'
 import { decodeJWT, isTokenExpired } from './utils'
 import type { LoginResponseDto, UserDto, CreateInvoiceDto, MakeupPDFDto } from './types/api.types'
-import type {
-    CreateInvoiceResult,
-    CreateApiTokenDto,
-    ApiTokenResponse,
-    ApiTokenListItem,
-} from './types/index'
+import type { CreateInvoiceResult } from './types/index'
 import type { InvoSDKConfig } from './types/sdk.types'
 
 /**
@@ -462,8 +457,6 @@ export class InvoSDK {
         this.saveTokens(response)
         return response
     }
-
- 
 
     /**
      * Make a generic authenticated request to any endpoint

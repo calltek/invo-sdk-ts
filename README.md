@@ -11,7 +11,7 @@ Backend SDK for INVO API - Authentication and Invoice Management with full TypeS
 ✅ **Invoice Management** - Create and manage VeriFactu invoices
 ✅ **Invoice Reader** - Extract data from PDF and XML invoices
 ✅ **PDF Generator** - Generate branded invoice PDFs
-✅ **API Tokens** - Generate tokens for subcontractors and integrations
+✅ **API Token Authentication** - Authenticate using API tokens for integrations
 ✅ **Multi-Environment** - Production and sandbox modes
 ✅ **Zero Dependencies** - No external dependencies
 ✅ **Generic Request Method** - Call any API endpoint with authentication
@@ -276,39 +276,25 @@ fs.writeFileSync('invoice.pdf', Buffer.from(pdfBuffer))
 console.log('PDF generated successfully!')
 ```
 
-### API Tokens for Subcontractors
+### Using API Tokens (Authentication Only)
 
-```typescript
-// Create API Token
-const token = await sdk.createApiToken({
-  name: 'Partner ABC - Integration',
-  expires_in: 365 // Days (optional)
-})
-
-console.log('Token created:', token.token)
-console.log('⚠️ Save this token securely, it won\'t be shown again')
-
-// List tokens
-const tokens = await sdk.listApiTokens()
-tokens.forEach(t => {
-  console.log(`${t.name}: ${t.prefix}... (last used: ${t.last_used_at || 'Never'})`)
-})
-
-// Revoke token
-await sdk.revokeApiToken('token-id')
-```
-
-### Using API Tokens
+If you have an API token (obtained from your INVO account), you can authenticate directly without email/password:
 
 ```typescript
 import { createInvoSDKWithToken } from 'invo-sdk'
 
-// Create SDK with API Token
-// Environment is auto-detected from token prefix (invo_tok_prod_* or invo_tok_sand_*)
+// Create SDK with API Token (obtained from your INVO account)
+// Environment is auto-detected from token prefix:
+//   - invo_tok_prod_* → production
+//   - invo_tok_sand_* → sandbox
 const sdk = await createInvoSDKWithToken('invo_tok_prod_abc123...')
 
 // SDK is ready to use - no login() needed
-const result = await sdk.createInvoice({...})
+const result = await sdk.createInvoice({
+  issueDate: new Date().toISOString(),
+  invoiceNumber: 'FAC-2024-001',
+  // ... rest of invoice data
+})
 ```
 
 ### Generic API Requests
@@ -434,19 +420,7 @@ Read and parse invoice data from an uploaded file (PDF, XML, etc.).
 Generate a PDF invoice with custom branding and styling.
 
 #### `loginWithToken(apiToken: string): Promise<LoginResponseDto>`
-Authenticate using an API Token instead of email/password.
-
-#### `createApiToken(data: CreateApiTokenDto): Promise<ApiTokenResponse>`
-Create a new API Token for subcontractors or integrations.
-
-#### `listApiTokens(): Promise<ApiTokenListItem[]>`
-List all API Tokens for the authenticated user.
-
-#### `getApiToken(tokenId: string): Promise<ApiTokenListItem>`
-Get details of a specific API Token.
-
-#### `revokeApiToken(tokenId: string): Promise<void>`
-Revoke an API Token (permanently disable it).
+Authenticate using an API Token (obtained from your INVO account) instead of email/password.
 
 #### `request<T>(endpoint: string, method?: 'GET' | 'POST' | 'PUT' | 'DELETE', body?: unknown): Promise<T>`
 Make a generic authenticated request to any API endpoint.
@@ -609,41 +583,45 @@ try {
 - **Production**: `https://api.invo.rest`
 - **Sandbox**: `https://sandbox.invo.rest`
 
-## API Tokens
+## API Token Authentication
 
-For detailed information about API Tokens, see [docs/API_TOKENS.md](./docs/API_TOKENS.md).
+If you have an API token from your INVO account, you can use it to authenticate instead of email/password. This is ideal for integrations and automated systems.
 
-### Quick Start with Tokens
+### Using an API Token
 
 ```typescript
-// 1. Main user creates token
-import { createInvoSDK } from 'invo-sdk'
-
-const mainSDK = createInvoSDK({
-  email: 'admin@company.com',
-  password: 'password123',
-  environment: 'production'
-})
-
-await mainSDK.login()
-
-const token = await mainSDK.createApiToken({
-  name: 'Partner ABC',
-  expires_in: 365
-})
-
-console.log('Share this token:', token.token)
-
-// 2. Partner uses token
 import { createInvoSDKWithToken } from 'invo-sdk'
 
-const partnerSDK = await createInvoSDKWithToken(token.token, {
-  environment: 'production'
+// Authenticate with API token (obtained from your INVO account)
+// Environment is auto-detected from token prefix:
+//   - invo_tok_prod_* → production
+//   - invo_tok_sand_* → sandbox
+const sdk = await createInvoSDKWithToken('invo_tok_prod_abc123...')
+
+// SDK is ready to use immediately
+const invoice = await sdk.createInvoice({
+  issueDate: new Date().toISOString(),
+  invoiceNumber: 'FAC-2024-001',
+  externalId: 'order-12345',
+  totalAmount: 1210.00,
+  customerName: 'Cliente SL',
+  customerTaxId: 'B12345678',
+  emitterName: 'Mi Empresa SL',
+  emitterTaxId: 'B87654321',
+  description: 'Servicios de consultoría',
+  taxLines: [
+    {
+      taxRate: 21,
+      baseAmount: 1000.00,
+      taxAmount: 210.00
+    }
+  ]
 })
 
-// Partner can now create invoices
-const invoice = await partnerSDK.createInvoice({...})
+console.log('Invoice created:', invoice.invoiceId)
 ```
+
+**Note:** API tokens must be obtained from your INVO account dashboard. Token management (creation, revocation) is done through the INVO web platform, not through this SDK.
 
 ## Development
 
