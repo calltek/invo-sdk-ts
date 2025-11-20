@@ -6,7 +6,7 @@
  */
 
 // Main SDK
-export { createInvoSDK, createInvoSDKWithToken, InvoSDK } from './sdk'
+export { createInvoSDK, createInvoSDKWithToken, InvoSDK } from './sdk.js'
 
 // Types
 export type {
@@ -40,4 +40,4 @@ export {
 } from './errors'
 
 // Utilities
-export { decodeJWT, getSecondsUntilExpiration, isTokenExpired, isValidEmail } from './utils'
+export { decodeJWT, getSecondsUntilExpiration, isTokenExpired, isValidEmail } from './utils.js'
