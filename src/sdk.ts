@@ -1,7 +1,7 @@
 import { AuthError, InvalidCredentialsError, NetworkError, TokenExpiredError } from './errors'
-import { decodeJWT, isTokenExpired } from './utils'
+import { isTokenExpired } from './utils'
 import type { LoginResponseDto, UserDto, CreateInvoiceDto, MakeupPDFDto } from './types/api.types'
-import type { CreateInvoiceResult } from './types/index'
+import type { CreateInvoiceResult, InvoiceReaderResult } from './types/index'
 import type { InvoSDKConfig } from './types/sdk.types'
 
 /**
@@ -24,33 +24,46 @@ function detectEnvironmentFromToken(apiToken: string): 'production' | 'sandbox' 
  * Provides authentication and invoice management functionality
  */
 export class InvoSDK {
-    private email?: string
-    private password?: string
-    private environment: 'production' | 'sandbox'
-    private autoRefresh: boolean
-    private refreshBuffer: number
-    private onTokenRefreshed: (tokens: LoginResponseDto) => void
-    private onLogout: () => void
+    private apiToken: string
+    private workspace?: string
+    public environment: 'production' | 'sandbox'
     private onError: (error: Error) => void
 
     // Token storage in memory
     private accessToken: string | null = null
-    private refreshToken: string | null = null
     private user: UserDto | null = null
-    private refreshTimer: ReturnType<typeof setTimeout> | null = null
+    private loginPromise: Promise<LoginResponseDto> | null = null
 
+    /**
+     * Create a new InvoSDK instance
+     *
+     * @example
+     * ```typescript
+     * // Basic usage
+     * const sdk = new InvoSDK({ apiToken: 'invo_tok_prod_...' })
+     *
+     * // With workspace
+     * const sdk = new InvoSDK({
+     *   apiToken: 'invo_tok_prod_...',
+     *   workspace: 'workspace-id'
+     * })
+     *
+     * // All methods automatically authenticate when needed
+     * const invoice = await sdk.store({...})
+     * ```
+     */
     constructor(config: InvoSDKConfig) {
         if (config.environment && !['production', 'sandbox'].includes(config.environment)) {
             throw new Error('Invalid environment. Allowed values are production, sandbox.')
         }
 
-        this.email = config.email
-        this.password = config.password
-        this.environment = config.environment || 'production'
-        this.autoRefresh = config.autoRefresh ?? true
-        this.refreshBuffer = config.refreshBuffer ?? 300
-        this.onTokenRefreshed = config.onTokenRefreshed || (() => {})
-        this.onLogout = config.onLogout || (() => {})
+        this.apiToken = config.apiToken
+        this.workspace = config.workspace
+
+        // Auto-detect environment from API token if not provided
+        const detectedEnv = detectEnvironmentFromToken(this.apiToken)
+        this.environment = config.environment || detectedEnv || 'production'
+
         this.onError = config.onError || (() => {})
     }
 
@@ -61,6 +74,31 @@ export class InvoSDK {
         return this.environment === 'production'
             ? 'https://api.invo.rest'
             : 'https://sandbox.invo.rest'
+    }
+
+    /**
+     * Ensure the SDK is authenticated
+     * Automatically logs in with API token if not already authenticated
+     */
+    private async ensureAuthenticated(): Promise<void> {
+        // Already authenticated
+        if (this.accessToken && !isTokenExpired(this.accessToken)) {
+            return
+        }
+
+        // Login in progress, wait for it
+        if (this.loginPromise) {
+            await this.loginPromise
+            return
+        }
+
+        // Auto-login with API token
+        this.loginPromise = this.loginWithToken()
+        try {
+            await this.loginPromise
+        } finally {
+            this.loginPromise = null
+        }
     }
 
     /**
@@ -86,17 +124,19 @@ export class InvoSDK {
 
             // Add authorization header if required
             if (requiresAuth) {
-                if (!this.accessToken) {
-                    throw new TokenExpiredError('No access token available. Please login first.')
-                }
+                // Ensure we're authenticated (auto-login if needed)
+                await this.ensureAuthenticated()
 
-                // Check if token is expired
-                if (isTokenExpired(this.accessToken)) {
-                    // Try to refresh the token
-                    await this.refreshAccessToken()
+                if (!this.accessToken) {
+                    throw new TokenExpiredError('No access token available after authentication.')
                 }
 
                 headers['Authorization'] = `Bearer ${this.accessToken}`
+            }
+
+            // Add workspace header if specified
+            if (this.workspace) {
+                headers['X-Workspace-Id'] = this.workspace
             }
 
             // Prepare body based on content type
@@ -173,102 +213,7 @@ export class InvoSDK {
      */
     private saveTokens(response: LoginResponseDto): void {
         this.accessToken = response.access_token
-        this.refreshToken = response.refresh_token
         this.user = response.user
-
-        if (this.autoRefresh) {
-            this.setupAutoRefresh()
-        }
-    }
-
-    /**
-     * Setup automatic token refresh
-     */
-    private setupAutoRefresh(): void {
-        // Clear existing timer
-        if (this.refreshTimer) {
-            clearTimeout(this.refreshTimer)
-        }
-
-        if (!this.accessToken) return
-
-        try {
-            const decoded = decodeJWT(this.accessToken)
-            const expiresIn = decoded.exp - Math.floor(Date.now() / 1000)
-            const refreshAt = Math.max(0, expiresIn - this.refreshBuffer) * 1000
-
-            this.refreshTimer = setTimeout(async () => {
-                try {
-                    await this.refreshAccessToken()
-                } catch (error) {
-                    console.error('Auto-refresh failed:', error)
-                    this.onError(error instanceof Error ? error : new Error('Auto-refresh failed'))
-                }
-            }, refreshAt)
-        } catch (error) {
-            console.error('Failed to setup auto-refresh:', error)
-        }
-    }
-
-    /**
-     * Login with email and password
-     */
-    async login(): Promise<LoginResponseDto> {
-        if (!this.email || !this.password) {
-            throw new Error(
-                'Email and password are required for login. Use loginWithToken() for API token authentication.',
-            )
-        }
-
-        const response = await this.apiRequest<LoginResponseDto>(
-            '/auth/login',
-            'POST',
-            {
-                email: this.email,
-                password: this.password,
-            },
-            false, // Don't require auth for login
-        )
-
-        this.saveTokens(response)
-        return response
-    }
-
-    /**
-     * Refresh access token
-     */
-    async refreshAccessToken(): Promise<LoginResponseDto> {
-        if (!this.refreshToken) {
-            throw new TokenExpiredError('No refresh token available')
-        }
-
-        const response = await this.apiRequest<LoginResponseDto>(
-            '/auth/refresh',
-            'POST',
-            {
-                refresh_token: this.refreshToken,
-            },
-            false, // Don't require auth for refresh
-        )
-
-        this.saveTokens(response)
-        this.onTokenRefreshed(response)
-        return response
-    }
-
-    /**
-     * Logout and clear tokens
-     */
-    logout(): void {
-        if (this.refreshTimer) {
-            clearTimeout(this.refreshTimer)
-            this.refreshTimer = null
-        }
-
-        this.accessToken = null
-        this.refreshToken = null
-        this.user = null
-        this.onLogout()
     }
 
     /**
@@ -276,13 +221,6 @@ export class InvoSDK {
      */
     getAccessToken(): string | null {
         return this.accessToken
-    }
-
-    /**
-     * Get current refresh token
-     */
-    getRefreshToken(): string | null {
-        return this.refreshToken
     }
 
     /**
@@ -306,25 +244,15 @@ export class InvoSDK {
     }
 
     /**
-     * Get current environment
-     */
-    getEnvironment(): 'production' | 'sandbox' {
-        return this.environment
-    }
-
-    /**
-     * Switch environment
-     */
-    setEnvironment(env: 'production' | 'sandbox'): void {
-        this.environment = env
-    }
-
-    /**
      * Create and submit a new invoice
+     *
+     * @param data - Invoice data
+     * @param callback - Optional webhook URL to receive status updates for this invoice
      *
      * @example
      * ```typescript
-     * const result = await sdk.createInvoice({
+     * // Without webhook
+     * const result = await sdk.store({
      *   issueDate: new Date().toISOString(),
      *   invoiceNumber: 'FAC-2024-001',
      *   externalId: 'order-12345',
@@ -342,11 +270,19 @@ export class InvoSDK {
      *     }
      *   ]
      * })
+     *
+     * // With webhook to receive status updates
+     * const result = await sdk.store({...}, 'https://myapp.com/webhooks/invo')
      * console.log('Invoice created:', result.invoiceId)
      * ```
      */
-    async createInvoice(data: CreateInvoiceDto): Promise<CreateInvoiceResult> {
-        return this.apiRequest<CreateInvoiceResult>('/invoice/store', 'POST', data)
+    async store(data: CreateInvoiceDto, callback?: string): Promise<CreateInvoiceResult> {
+        const payload: CreateInvoiceDto & { callback?: string } = {
+            ...data,
+            ...(callback && { callback })
+        }
+
+        return this.apiRequest<CreateInvoiceResult>('/invoice/store', 'POST', payload)
     }
 
     /**
@@ -360,14 +296,14 @@ export class InvoSDK {
      * const fs = require('fs')
      * const fileBuffer = fs.readFileSync('invoice.pdf')
      * const file = new File([fileBuffer], 'invoice.pdf', { type: 'application/pdf' })
-     * const invoiceData = await sdk.readInvoice(file)
+     * const invoiceData = await sdk.read(file)
      * ```
      */
-    async readInvoice(file: File | Blob): Promise<any> {
+    async read(file: File | Blob): Promise<InvoiceReaderResult> {
         const formData = new FormData()
         formData.append('file', file)
 
-        return this.apiRequest<any>('/reader', 'POST', formData, true, {
+        return this.apiRequest<InvoiceReaderResult>('/reader', 'POST', formData, true, {
             contentType: null,
         })
     }
@@ -380,7 +316,7 @@ export class InvoSDK {
      *
      * @example
      * ```typescript
-     * const pdfBuffer = await sdk.makeupInvoice({
+     * const pdfBuffer = await sdk.pdf({
      *   id: 'INV-2024-001',
      *   date: '2024-01-15',
      *   branding: {
@@ -421,36 +357,20 @@ export class InvoSDK {
      * fs.writeFileSync('invoice.pdf', Buffer.from(pdfBuffer))
      * ```
      */
-    async makeupInvoice(data: MakeupPDFDto): Promise<ArrayBuffer> {
+    async pdf(data: MakeupPDFDto): Promise<ArrayBuffer> {
         return this.apiRequest<ArrayBuffer>('/makeup', 'POST', data, true, {
             responseType: 'arrayBuffer',
         })
     }
 
     /**
-     * Login with API Token
-     *
-     * **Recommended:** Use `createInvoSDKWithToken()` instead for a simpler API.
-     *
-     * @param apiToken - API token for authentication
-     * @returns Authentication response with access token
-     *
-     * @example
-     * ```typescript
-     * // Using the helper (recommended)
-     * const sdk = await createInvoSDKWithToken('invo_tok_prod_abc123...')
-     *
-     * // Or manually
-     * const sdk = new InvoSDK({ environment: 'production' })
-     * const response = await sdk.loginWithToken('invo_tok_prod_abc123...')
-     * console.log('Authenticated:', response.user.email)
-     * ```
+     * Login with API Token (internal method)
      */
-    async loginWithToken(apiToken: string): Promise<LoginResponseDto> {
+    private async loginWithToken(): Promise<LoginResponseDto> {
         const response = await this.apiRequest<LoginResponseDto>(
             '/auth/token',
             'POST',
-            { api_token: apiToken },
+            { api_token: this.apiToken },
             false, // Don't require auth for login
         )
 
@@ -474,73 +394,3 @@ export class InvoSDK {
     }
 }
 
-/**
- * Create SDK instance with API Token authentication
- *
- * Automatically detects the environment from the token prefix:
- * - `invo_tok_prod_*` → production
- * - `invo_tok_sand_*` → sandbox
- *
- * @param apiToken - API token for authentication
- * @param config - Optional SDK configuration (environment will be auto-detected if not provided)
- * @returns SDK instance ready to use
- *
- * @example
- * ```typescript
- * import { createInvoSDKWithToken } from 'invo-sdk'
- *
- * // Environment is auto-detected from token prefix
- * const sdk = await createInvoSDKWithToken('invo_tok_prod_abc123...')
- *
- * // Or explicitly specify environment
- * const sdk = await createInvoSDKWithToken('invo_tok_prod_abc123...', {
- *   environment: 'production'
- * })
- *
- * // SDK is automatically authenticated and ready to use
- * const invoice = await sdk.createInvoice({...})
- * ```
- */
-export async function createInvoSDKWithToken(
-    apiToken: string,
-    config?: Partial<Omit<InvoSDKConfig, 'email' | 'password'>>,
-): Promise<InvoSDK> {
-    // Auto-detect environment from token if not explicitly provided
-    const detectedEnv = detectEnvironmentFromToken(apiToken)
-    const environment = config?.environment || detectedEnv || 'production'
-
-    const sdk = new InvoSDK({
-        environment,
-        autoRefresh: config?.autoRefresh ?? false, // Tokens don't auto-refresh
-        refreshBuffer: config?.refreshBuffer,
-        onTokenRefreshed: config?.onTokenRefreshed,
-        onLogout: config?.onLogout,
-        onError: config?.onError,
-    })
-
-    // Auto-login with token
-    await sdk.loginWithToken(apiToken)
-
-    return sdk
-}
-
-/**
- * Create a new INVO SDK instance
- *
- * @example
- * ```typescript
- * import { createInvoSDK } from 'invo-sdk'
- *
- * const sdk = createInvoSDK({
- *   email: 'user@example.com',
- *   password: 'password123',
- *   environment: 'production'
- * })
- *
- * await sdk.login()
- * console.log('Authenticated:', sdk.isAuthenticated())
- * ```
- */
-export function createInvoSDK(config: InvoSDKConfig): InvoSDK {
-    return new InvoSDK(config)
-}

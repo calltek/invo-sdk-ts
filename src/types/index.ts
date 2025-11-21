@@ -15,6 +15,11 @@ export interface CreateInvoiceResult {
     chainIndex: number
 }
 
+/**
+ * Invoice reader result
+ */
+export type InvoiceReaderResult = Record<string, unknown>
+
 // API Token types
 export interface CreateApiTokenDto {
     name: string

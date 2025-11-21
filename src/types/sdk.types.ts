@@ -1,5 +1,3 @@
-import type { LoginResponseDto } from './api.types'
-
 /**
  * SDK Configuration types
  */
@@ -9,46 +7,29 @@ import type { LoginResponseDto } from './api.types'
  */
 export interface InvoSDKConfig {
     /**
-     * User email for authentication (required for email/password login)
+     * API token for authentication (required)
+     * The SDK will automatically login when initialized
+     * Environment is auto-detected from the token prefix:
+     * - invo_tok_prod_* → production
+     * - invo_tok_sand_* → sandbox
      */
-    email?: string
+    apiToken: string
 
     /**
-     * User password for authentication (required for email/password login)
+     * Workspace ID to use for multi-tenant scenarios
      */
-    password?: string
+    workspace?: string
 
     /**
      * Environment to use
-     * When using API tokens, this is auto-detected from the token prefix if not specified
-     * @default 'production'
+     * If not specified, it will be auto-detected from the token prefix
+     * @default auto-detected from token
      */
     environment?: 'production' | 'sandbox'
-
-    /**
-     * Enable automatic token refresh
-     * @default true
-     */
-    autoRefresh?: boolean
-
-    /**
-     * Buffer time in seconds before token expiration to trigger refresh
-     * @default 300 (5 minutes)
-     */
-    refreshBuffer?: number
-
-    /**
-     * Callback fired when tokens are refreshed
-     */
-    onTokenRefreshed?: (tokens: LoginResponseDto) => void
-
-    /**
-     * Callback fired when user logs out
-     */
-    onLogout?: () => void
 
     /**
      * Callback fired on authentication errors
      */
     onError?: (error: Error) => void
 }
+
