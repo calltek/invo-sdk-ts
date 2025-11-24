@@ -1,13 +1,15 @@
+import 'dotenv/config'
 import path from 'path'
 import { generateApi } from 'swagger-typescript-api'
 
-const env = process.argv[2] || 'production'
+const env = process.env.INVO_ENV || 'production'
 
-let url = 'https://api.invo.rest/swagger'
+// Usar swagger-internal.json que incluye todos los endpoints (incluidos los internos)
+let url = 'https://api.invo.rest/swagger-internal.json'
 if (env === 'sandbox') {
-    url = 'https://sandbox.invo.rest/swagger'
+    url = 'https://sandbox.invo.rest/swagger-internal.json'
 } else if (env === 'localhost') {
-    url = 'http://localhost:3000/swagger'
+    url = 'http://localhost:3000/swagger-internal.json'
 }
 
 console.log(`🌍 Generating API from ${url}`)
