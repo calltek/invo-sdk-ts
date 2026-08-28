@@ -48,13 +48,13 @@ export interface WorkspaceDto {
 
 export interface LoginResponseDto {
   /**
-   * Access token JWT de Supabase
+   * Access token JWT, de corta duración
    * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
    */
   access_token: string;
   /**
-   * Refresh token de Supabase
-   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+   * Refresh token opaco, canjeable en /auth/refresh
+   * @example "a1b2c3d4e5f6..."
    */
   refresh_token: string;
   /**
@@ -99,6 +99,82 @@ export interface LoginDto {
   password: string;
 }
 
+export interface LoginTotpDto {
+  /**
+   * mfa_token de POST /auth/login; opcional si viaja en cookie (OAuth)
+   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+   */
+  mfa_token?: string;
+  /**
+   * Código TOTP de 6 dígitos o un código de recuperación
+   * @example "123456"
+   */
+  code: string;
+}
+
+export interface EnableTotpDto {
+  /**
+   * Contraseña actual, obligatoria salvo en cuentas solo-OAuth
+   * @example "password123"
+   */
+  password?: string;
+  /**
+   * Código enviado por email, obligatorio en cuentas solo-OAuth
+   * @example "123456"
+   */
+  email_code?: string;
+}
+
+export interface ConfirmTotpDto {
+  /**
+   * Código TOTP
+   * @example "123456"
+   */
+  code: string;
+}
+
+export interface DisableTotpDto {
+  /**
+   * Código TOTP vigente o código de recuperación sin usar. Opcional solo si no queda ninguno y se manda emailCode en su lugar
+   * @example "123456"
+   */
+  code?: string;
+  /**
+   * Código enviado por email, solo si no queda ningún código de recuperación (ver /totp/disable/challenge)
+   * @example "123456"
+   */
+  email_code?: string;
+}
+
+export interface ForgotPasswordDto {
+  /**
+   * Email de la cuenta a recuperar
+   * @example "user@example.com"
+   */
+  email: string;
+}
+
+export interface ResetPasswordDto {
+  /**
+   * Token recibido por email
+   * @example "a1b2c3d4..."
+   */
+  token: string;
+  /**
+   * Nueva contraseña
+   * @example "nueva-contraseña-segura"
+   */
+  newPassword: string;
+}
+
+export interface LogoutDto {
+  /**
+   * Refresh token a revocar. Opcional: si no se manda, se usa la cookie httpOnly
+   * @example "a1b2c3d4e5f6..."
+   */
+  refresh_token?: string;
+}
+
 export interface LoginWithApiTokenDto {
   /**
    * Token de API para autenticación
@@ -107,22 +183,12 @@ export interface LoginWithApiTokenDto {
   api_token: string;
 }
 
-export interface OAuthCallbackDto {
+export interface UpdateUserRoleDto {
   /**
-   * Access token recibido del callback OAuth
-   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+   * Rol de plataforma que se asigna al usuario
+   * @example "client"
    */
-  access_token: string;
-  /**
-   * Refresh token recibido del callback OAuth
-   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-   */
-  refresh_token: string;
-  /**
-   * Tiempo de expiración del token en segundos
-   * @example 3600
-   */
-  expires_in?: number;
+  role: "admin" | "client" | "api";
 }
 
 export interface SwitchWorkspaceDto {
@@ -158,6 +224,11 @@ export interface CreateWorkspaceDto {
    */
   name: string;
   /**
+   * Razón social ante la AEAT. Si se omite, se usa el nombre
+   * @example "Mi Empresa S.L."
+   */
+  legal_name?: string;
+  /**
    * NIF/CIF de la empresa
    * @example "B12345678"
    */
@@ -181,6 +252,11 @@ export interface UpdateWorkspaceDto {
    */
   name?: string;
   /**
+   * Razón social ante la AEAT. Si se omite, se usa el nombre
+   * @example "Mi Empresa S.L."
+   */
+  legal_name?: string;
+  /**
    * NIF/CIF de la empresa
    * @example "B12345678"
    */
@@ -203,10 +279,10 @@ export interface UpdateWorkspaceDto {
 
 export interface AddMemberDto {
   /**
-   * Identificador del usuario
-   * @example "user123"
+   * Email del usuario, que ya debe estar registrado en INVO
+   * @example "socio@empresa.com"
    */
-  user_id: string;
+  email: string;
   /**
    * Rol del usuario en el workspace
    * @example "member"
@@ -238,17 +314,17 @@ export interface InvoiceTaxLineDto {
    */
   taxType?: "01" | "02" | "03" | "04";
   /**
-   * Tipo impositivo (porcentaje). IVA: 0, 4, 5, 10, 21; IGIC: 0, 3, 7, 9.5, 13.5, 20; IPSI: 0, 0.5, 1, 4, 10
+   * Tipo impositivo (porcentaje). IVA: 0, 2, 4, 5, 7.5, 10 o 21, según la fecha de la operación (Validaciones §15.1); IGIC: 0, 3, 7, 9.5, 13.5, 20; IPSI: 0, 0.5, 1, 4, 10
    * @example 21
    */
   taxRate: number;
   /**
-   * Base imponible para este tipo de IVA
+   * Base imponible para este tipo de IVA. Negativa en un abono
    * @example 1000
    */
   baseAmount: number;
   /**
-   * Cuota de impuesto para este tipo de IVA
+   * Cuota de impuesto para este tipo de IVA. Negativa en un abono
    * @example 210
    */
   taxAmount: number;
@@ -258,7 +334,7 @@ export interface InvoiceTaxLineDto {
    */
   surchargeAmount?: number;
   /**
-   * Porcentaje de recargo de equivalencia: 0.5, 0.62, 1.4, 1.75, 5.2
+   * Porcentaje de recargo de equivalencia: 0, 0.26, 0.5, 0.62, 1, 1.4, 1.75 o 5.2, según el tipo impositivo y la fecha de la operación
    * @example 5.2
    */
   surchargeRate?: number;
@@ -267,6 +343,11 @@ export interface InvoiceTaxLineDto {
    * @example "E5"
    */
   taxExemptionReason?: "E1" | "E2" | "E3" | "E4" | "E5" | "E6";
+  /**
+   * CalificacionOperacion: S1=Sujeta y no exenta, S2=Inversión del sujeto pasivo, N1=No sujeta art. 7/14/otros, N2=No sujeta por reglas de localización. Si se omite se deduce del tipo impositivo. Excluyente con taxExemptionReason
+   * @example "S1"
+   */
+  operationType?: "S1" | "S2" | "N1" | "N2";
   /**
    * Clave de régimen fiscal: 01=General, 02=Exportación, 03=REBU, 05=Agencias de viajes, 07=Criterio de caja, 08=Reverse charge, etc.
    * @default "01"
@@ -310,7 +391,7 @@ export interface CreateInvoiceDto {
    */
   externalId: string;
   /**
-   * Importe total de la factura (base + impuestos)
+   * Importe total de la factura (base + impuestos). Negativo en un abono
    * @example 121
    */
   totalAmount: number;
@@ -331,31 +412,56 @@ export interface CreateInvoiceDto {
    */
   customerTaxId: string;
   /**
-   * Nombre o razón social del emisor de la factura
+   * Nombre o razón social del emisor. Si se omite, se toma del certificado
    * @example "Mi Empresa SL"
    */
-  emitterName: string;
+  emitterName?: string;
   /**
    * NIF/CIF del emisor (formato español)
    * @example "B87654321"
    */
   emitterTaxId: string;
   /**
-   * Tipo de factura según VERIFACTU: F1 (completa), F2 (simplificada), F3 (sustitutiva), R1-R4 (rectificativas)
+   * Tipo de factura según VERIFACTU: F1 (completa), F2 (simplificada), F3 (sustitutiva), R1-R5 (rectificativas)
    * @default "F1"
    * @example "F1"
    */
-  type?: "F1" | "F2" | "F3" | "R1" | "R2" | "R3" | "R4";
+  type?: "F1" | "F2" | "F3" | "R1" | "R2" | "R3" | "R4" | "R5";
+  /**
+   * Tipo de rectificativa: S (por sustitución) o I (por diferencias). Obligatorio con R1-R5
+   * @example "S"
+   */
+  rectificationType?: "S" | "I";
   /**
    * Descripción de la operación reflejada en la factura
    * @example "Venta de servicios de consultoría tecnológica"
    */
   description?: string;
   /**
-   * Array de UUIDs de facturas rectificadas (obligatorio para tipos R1, R2, R3, R4)
+   * Factura completa expedida como simplificada cualificada (arts. 7.2 y 7.3): lleva los datos del destinatario para que pueda deducir. Sólo en F1, F3 y R1-R4
+   * @example false
+   */
+  simplifiedQualified?: boolean;
+  /**
+   * Factura completa en la que no es obligatorio identificar al destinatario (art. 6.1.d). Se remite con clave F2 y no tiene límite de importe. Sólo en F2 y R5
+   * @example false
+   */
+  unidentifiedRecipient?: boolean;
+  /**
+   * Número del acuerdo de facturación registrado en la AEAT, cuando factura el destinatario o un tercero
+   * @example "ACU-2026-001"
+   */
+  billingAgreementNumber?: string;
+  /**
+   * Array de UUIDs de facturas rectificadas (obligatorio para tipos R1-R5)
    * @example ["550e8400-e29b-41d4-a716-446655440000"]
    */
   rectifiedInvoiceIds?: string[];
+  /**
+   * Array de UUIDs de facturas simplificadas sustituidas (sólo aplica al tipo F3)
+   * @example ["550e8400-e29b-41d4-a716-446655440000"]
+   */
+  substitutedInvoiceIds?: string[];
   /**
    * Líneas de desglose de impuestos (una por cada tipo de IVA). Para facturas con un solo tipo de IVA, enviar un array con un solo elemento. Para facturas con múltiples tipos de IVA, enviar un array con múltiples elementos.
    * @example [{"taxType":"01","taxRate":21,"baseAmount":1000,"taxAmount":210},{"taxType":"01","taxRate":10,"baseAmount":500,"taxAmount":50}]
@@ -366,6 +472,11 @@ export interface CreateInvoiceDto {
    * @example "https://myapp.com/webhooks/verifactu"
    */
   callback?: string;
+}
+
+export interface BulkCreateInvoiceDto {
+  /** Facturas a crear en una sola petición (máx. 50). Cada elemento se valida con las mismas reglas que POST /invoice/store; si una falla no bloquea al resto -- la respuesta indica el resultado factura a factura */
+  invoices: CreateInvoiceDto[];
 }
 
 export interface UpdateInvoiceDto {
@@ -385,7 +496,7 @@ export interface UpdateInvoiceDto {
    */
   externalId?: string;
   /**
-   * Importe total de la factura (base + impuestos)
+   * Importe total de la factura (base + impuestos). Negativo en un abono
    * @example 121
    */
   totalAmount?: number;
@@ -406,7 +517,7 @@ export interface UpdateInvoiceDto {
    */
   customerTaxId?: string;
   /**
-   * Nombre o razón social del emisor de la factura
+   * Nombre o razón social del emisor. Si se omite, se toma del certificado
    * @example "Mi Empresa SL"
    */
   emitterName?: string;
@@ -416,21 +527,46 @@ export interface UpdateInvoiceDto {
    */
   emitterTaxId?: string;
   /**
-   * Tipo de factura según VERIFACTU: F1 (completa), F2 (simplificada), F3 (sustitutiva), R1-R4 (rectificativas)
+   * Tipo de factura según VERIFACTU: F1 (completa), F2 (simplificada), F3 (sustitutiva), R1-R5 (rectificativas)
    * @default "F1"
    * @example "F1"
    */
-  type?: "F1" | "F2" | "F3" | "R1" | "R2" | "R3" | "R4";
+  type?: "F1" | "F2" | "F3" | "R1" | "R2" | "R3" | "R4" | "R5";
+  /**
+   * Tipo de rectificativa: S (por sustitución) o I (por diferencias). Obligatorio con R1-R5
+   * @example "S"
+   */
+  rectificationType?: "S" | "I";
   /**
    * Descripción de la operación reflejada en la factura
    * @example "Venta de servicios de consultoría tecnológica"
    */
   description?: string;
   /**
-   * Array de UUIDs de facturas rectificadas (obligatorio para tipos R1, R2, R3, R4)
+   * Factura completa expedida como simplificada cualificada (arts. 7.2 y 7.3): lleva los datos del destinatario para que pueda deducir. Sólo en F1, F3 y R1-R4
+   * @example false
+   */
+  simplifiedQualified?: boolean;
+  /**
+   * Factura completa en la que no es obligatorio identificar al destinatario (art. 6.1.d). Se remite con clave F2 y no tiene límite de importe. Sólo en F2 y R5
+   * @example false
+   */
+  unidentifiedRecipient?: boolean;
+  /**
+   * Número del acuerdo de facturación registrado en la AEAT, cuando factura el destinatario o un tercero
+   * @example "ACU-2026-001"
+   */
+  billingAgreementNumber?: string;
+  /**
+   * Array de UUIDs de facturas rectificadas (obligatorio para tipos R1-R5)
    * @example ["550e8400-e29b-41d4-a716-446655440000"]
    */
   rectifiedInvoiceIds?: string[];
+  /**
+   * Array de UUIDs de facturas simplificadas sustituidas (sólo aplica al tipo F3)
+   * @example ["550e8400-e29b-41d4-a716-446655440000"]
+   */
+  substitutedInvoiceIds?: string[];
   /**
    * Líneas de desglose de impuestos (una por cada tipo de IVA). Para facturas con un solo tipo de IVA, enviar un array con un solo elemento. Para facturas con múltiples tipos de IVA, enviar un array con múltiples elementos.
    * @example [{"taxType":"01","taxRate":21,"baseAmount":1000,"taxAmount":210},{"taxType":"01","taxRate":10,"baseAmount":500,"taxAmount":50}]
@@ -623,6 +759,11 @@ export interface MakeupPDFDto {
   payment_instructions: string;
   /** Texto RGPD */
   RGPD: string;
+  /**
+   * SVG del QR de VERI*FACTU. Si viene, el PDF lo pinta con la leyenda de la AEAT
+   * @example "<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 49 49"></svg>"
+   */
+  verifactu_qr: string;
   /**
    * Tipo de documento
    * @default "invoice"
@@ -907,7 +1048,7 @@ export class Api<
 > extends HttpClient<SecurityDataType> {
   ping = {
     /**
-     * @description Endpoint de health check para verificar que el servicio está activo y responde correctamente.
+     * No description
      *
      * @tags 🦄 Otros
      * @name Ping
@@ -958,6 +1099,159 @@ export class Api<
      * No description
      *
      * @tags 🔐 Autenticación, Internal
+     * @name AuthControllerLoginTotp
+     * @request POST:/auth/login/totp
+     */
+    authControllerLoginTotp: (data: LoginTotpDto, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/auth/login/totp`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
+     * @name AuthControllerTotpStatus
+     * @request GET:/auth/totp/status
+     */
+    authControllerTotpStatus: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/auth/totp/status`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
+     * @name AuthControllerEnableTotp
+     * @request POST:/auth/totp/enable
+     */
+    authControllerEnableTotp: (
+      data: EnableTotpDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/auth/totp/enable`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
+     * @name AuthControllerRequestTotpEnrollmentCode
+     * @request POST:/auth/totp/enable/challenge
+     */
+    authControllerRequestTotpEnrollmentCode: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/auth/totp/enable/challenge`,
+        method: "POST",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
+     * @name AuthControllerConfirmTotp
+     * @request POST:/auth/totp/confirm
+     */
+    authControllerConfirmTotp: (
+      data: ConfirmTotpDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/auth/totp/confirm`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
+     * @name AuthControllerRequestTotpDisableCode
+     * @request POST:/auth/totp/disable/challenge
+     */
+    authControllerRequestTotpDisableCode: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/auth/totp/disable/challenge`,
+        method: "POST",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
+     * @name AuthControllerDisableTotp
+     * @request POST:/auth/totp/disable
+     */
+    authControllerDisableTotp: (
+      data: DisableTotpDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/auth/totp/disable`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
+     * @name AuthControllerForgotPassword
+     * @request POST:/auth/forgot-password
+     */
+    authControllerForgotPassword: (
+      data: ForgotPasswordDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/auth/forgot-password`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
+     * @name AuthControllerResetPassword
+     * @request POST:/auth/reset-password
+     */
+    authControllerResetPassword: (
+      data: ResetPasswordDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/auth/reset-password`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
      * @name AuthControllerRefresh
      * @request POST:/auth/refresh
      */
@@ -965,6 +1259,22 @@ export class Api<
       this.request<void, any>({
         path: `/auth/refresh`,
         method: "POST",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
+     * @name AuthControllerLogout
+     * @request POST:/auth/logout
+     */
+    authControllerLogout: (data: LogoutDto, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/auth/logout`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -988,34 +1298,62 @@ export class Api<
       }),
 
     /**
-     * @description Inicia el flujo de autenticación OAuth con proveedores externos (Google, GitHub).
+     * No description
      *
      * @tags 🔐 Autenticación, Internal
-     * @name InitiateOAuth
-     * @summary Iniciar flujo de OAuth con un proveedor
-     * @request GET:/auth/oauth/{provider}
+     * @name InitiateGoogleOAuth
+     * @summary Iniciar login con Google
+     * @request GET:/auth/oauth/google
      */
-    initiateOAuth: (provider: string, params: RequestParams = {}) =>
+    initiateGoogleOAuth: (params: RequestParams = {}) =>
       this.request<void, any>({
-        path: `/auth/oauth/${provider}`,
+        path: `/auth/oauth/google`,
         method: "GET",
         ...params,
       }),
 
     /**
-     * @description Procesa el callback de autenticación OAuth y valida los tokens recibidos del proveedor externo.
+     * No description
      *
      * @tags 🔐 Autenticación, Internal
-     * @name OAuthCallback
-     * @summary Procesar callback de OAuth y validar tokens
-     * @request POST:/auth/oauth/callback
+     * @name GoogleOAuthCallback
+     * @summary Callback de Google OAuth
+     * @request GET:/auth/oauth/google/callback
      */
-    oAuthCallback: (data: OAuthCallbackDto, params: RequestParams = {}) =>
+    googleOAuthCallback: (params: RequestParams = {}) =>
       this.request<void, any>({
-        path: `/auth/oauth/callback`,
-        method: "POST",
-        body: data,
-        type: ContentType.Json,
+        path: `/auth/oauth/google/callback`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
+     * @name InitiateGithubOAuth
+     * @summary Iniciar login con GitHub
+     * @request GET:/auth/oauth/github
+     */
+    initiateGithubOAuth: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/auth/oauth/github`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 🔐 Autenticación, Internal
+     * @name GithubOAuthCallback
+     * @summary Callback de GitHub OAuth
+     * @request GET:/auth/oauth/github/callback
+     */
+    githubOAuthCallback: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/auth/oauth/github/callback`,
+        method: "GET",
         ...params,
       }),
 
@@ -1042,11 +1380,14 @@ export class Api<
      */
     authControllerUpdateUserRole: (
       userId: string,
+      data: UpdateUserRoleDto,
       params: RequestParams = {},
     ) =>
       this.request<void, any>({
         path: `/auth/users/${userId}/role`,
         method: "PATCH",
+        body: data,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -1325,7 +1666,7 @@ export class Api<
   };
   certificate = {
     /**
-     * @description Sube y configura el certificado digital (FNMT/P12) necesario para firmar y enviar facturas a la AEAT.
+     * No description
      *
      * @tags 🫆 Certificado digital
      * @name UploadCertificate
@@ -1347,7 +1688,7 @@ export class Api<
       }),
 
     /**
-     * @description Obtiene la información del certificado digital actual del usuario (fecha de expiración, emisor, etc.).
+     * No description
      *
      * @tags 🫆 Certificado digital
      * @name GetCertificateInfo
@@ -1364,7 +1705,7 @@ export class Api<
       }),
 
     /**
-     * @description Elimina el certificado digital del usuario del sistema, tanto del almacenamiento como de la base de datos.
+     * No description
      *
      * @tags 🫆 Certificado digital
      * @name DeleteCertificate
@@ -1382,7 +1723,7 @@ export class Api<
   };
   invoice = {
     /**
-     * @description Obtiene el listado paginado de facturas con filtros por fecha, estado, cliente y búsqueda libre.
+     * No description
      *
      * @tags 📝 Facturas
      * @name GetInvoices
@@ -1427,7 +1768,14 @@ export class Api<
           | "ACCEPTED"
           | "ACCEPTED_WITH_WARNINGS"
           | "REJECTED"
-          | "FAILED";
+          | "FAILED"
+          | "ANNULLED";
+        /**
+         * Tipo de registro: ALTA (por defecto) devuelve facturas, ANULACION sólo los registros de anulación remitidos a la AEAT, ALL ambos
+         * @default "ALTA"
+         * @example "ALTA"
+         */
+        recordType?: "ALTA" | "ANULACION" | "ALL";
         /**
          * Filtrar por NIF/CIF del cliente
          * @example "B12345678"
@@ -1450,7 +1798,7 @@ export class Api<
       }),
 
     /**
-     * @description Crea y registra una nueva factura en el sistema VERIFACTU con validación automática de datos y generación de hash.
+     * No description
      *
      * @tags 📝 Facturas
      * @name CreateInvoice
@@ -1469,7 +1817,63 @@ export class Api<
       }),
 
     /**
-     * @description Lista los batches de envío masivo de facturas a la AEAT con información de estado y resultado.
+     * No description
+     *
+     * @tags 📝 Facturas
+     * @name BulkCreateInvoice
+     * @summary Crear varias facturas en una sola petición. Responde 200 aunque alguna factura del lote falle (semántica ParcialmenteCorrecto): comprobar `data.failed`/`data.results[].success`, no sólo el código HTTP. Con Idempotency-Key, cada factura reclama su propia clave derivada: un reintento no duplica lo ya creado, pero no es atómico a nivel de lote -- si se reintenta mientras el primero sigue en curso, los elementos que ese primer intento aún no ha alcanzado pueden devolver 409 sin ser un error real. Sólo un lote en curso por workspace: 429 si ya hay otro en marcha
+     * @request POST:/invoice/store/bulk
+     * @secure
+     */
+    bulkCreateInvoice: (
+      data: BulkCreateInvoiceDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/invoice/store/bulk`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 📝 Facturas
+     * @name GetWebhookSecret
+     * @summary Obtener el secreto para verificar la firma HMAC (X-Invo-Signature) de los webhooks de callback_url
+     * @request GET:/invoice/webhook-secret
+     * @secure
+     */
+    getWebhookSecret: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/invoice/webhook-secret`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 📝 Facturas
+     * @name RotateWebhookSecret
+     * @summary Invalidar el secreto del webhook actual y emitir uno nuevo
+     * @request POST:/invoice/webhook-secret/rotate
+     * @secure
+     */
+    rotateWebhookSecret: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/invoice/webhook-secret/rotate`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
      *
      * @tags 📝 Facturas
      * @name GetBatches
@@ -1498,7 +1902,7 @@ export class Api<
          * Filtrar por estado del batch
          * @example "OPEN"
          */
-        status?: "OPEN" | "READY" | "SENT" | "CLOSED";
+        status?: "OPEN" | "READY" | "PROCESSING" | "SENT" | "CLOSED";
       },
       params: RequestParams = {},
     ) =>
@@ -1511,7 +1915,46 @@ export class Api<
       }),
 
     /**
-     * @description Obtiene el registro paginado de errores ocurridos durante el procesamiento de facturas.
+     * No description
+     *
+     * @tags 📝 Facturas, Internal
+     * @name InvoiceControllerGetPlatformBatches
+     * @request GET:/invoice/batches/platform
+     */
+    invoiceControllerGetPlatformBatches: (
+      query?: {
+        /**
+         * Número de página
+         * @min 1
+         * @default 1
+         * @example 1
+         */
+        page?: number;
+        /**
+         * Número de elementos por página
+         * @min 1
+         * @max 100
+         * @default 50
+         * @example 50
+         */
+        limit?: number;
+        /**
+         * Filtrar por estado del batch
+         * @example "OPEN"
+         */
+        status?: "OPEN" | "READY" | "PROCESSING" | "SENT" | "CLOSED";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/invoice/batches/platform`,
+        method: "GET",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * No description
      *
      * @tags 📝 Facturas
      * @name GetErrors
@@ -1553,7 +1996,95 @@ export class Api<
       }),
 
     /**
-     * @description Recupera los datos completos de una factura específica mediante su identificador único (UUID).
+     * No description
+     *
+     * @tags 📝 Facturas, Internal
+     * @name InvoiceControllerGetPlatformErrors
+     * @request GET:/invoice/errors/platform
+     */
+    invoiceControllerGetPlatformErrors: (
+      query?: {
+        /**
+         * Número de página
+         * @min 1
+         * @default 1
+         * @example 1
+         */
+        page?: number;
+        /**
+         * Número de elementos por página
+         * @min 1
+         * @max 100
+         * @default 50
+         * @example 50
+         */
+        limit?: number;
+        /**
+         * Filtrar por errores resueltos o no resueltos
+         * @example false
+         */
+        resolved?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/invoice/errors/platform`,
+        method: "GET",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 📝 Facturas, Internal
+     * @name InvoiceControllerGetPlatformQueueAttempts
+     * @request GET:/invoice/queue-attempts/platform
+     */
+    invoiceControllerGetPlatformQueueAttempts: (
+      query?: {
+        /**
+         * Número de página
+         * @min 1
+         * @default 1
+         * @example 1
+         */
+        page?: number;
+        /**
+         * Número de elementos por página
+         * @min 1
+         * @max 100
+         * @default 50
+         * @example 50
+         */
+        limit?: number;
+        /**
+         * Fecha desde (ISO 8601)
+         * @example "2024-01-01"
+         */
+        from?: string;
+        /**
+         * Fecha hasta (ISO 8601)
+         * @example "2024-12-31"
+         */
+        to?: string;
+        /**
+         * Filtrar por intentos exitosos o fallidos
+         * @example false
+         */
+        success?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/invoice/queue-attempts/platform`,
+        method: "GET",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * No description
      *
      * @tags 📝 Facturas
      * @name GetInvoiceById
@@ -1610,7 +2141,106 @@ export class Api<
       }),
 
     /**
-     * @description Fuerza el envío manual inmediato de una factura específica a la Agencia Tributaria (AEAT).
+     * No description
+     *
+     * @tags 📝 Facturas
+     * @name GetInvoicePdf
+     * @summary Descargar el PDF de la factura
+     * @request GET:/invoice/{id}/pdf
+     * @secure
+     */
+    getInvoicePdf: (id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/invoice/${id}/pdf`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 📝 Facturas
+     * @name GetInvoiceRecords
+     * @summary Histórico de registros de la factura
+     * @request GET:/invoice/{id}/records
+     * @secure
+     */
+    getInvoiceRecords: (id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/invoice/${id}/records`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 📝 Facturas
+     * @name GetInvoiceRecordXml
+     * @summary XML enviado/recibido de la AEAT para un registro
+     * @request GET:/invoice/{id}/records/{recordId}/xml
+     * @secure
+     */
+    getInvoiceRecordXml: (
+      id: string,
+      recordId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/invoice/${id}/records/${recordId}/xml`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 📝 Facturas
+     * @name GetInvoiceRecordAttempts
+     * @summary Historial de intentos de envío a la AEAT para un registro
+     * @request GET:/invoice/{id}/records/{recordId}/attempts
+     * @secure
+     */
+    getInvoiceRecordAttempts: (
+      id: string,
+      recordId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/invoice/${id}/records/${recordId}/attempts`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 📝 Facturas
+     * @name CorrectInvoice
+     * @summary Subsanar una factura ya aceptada
+     * @request POST:/invoice/{id}/correct
+     * @secure
+     */
+    correctInvoice: (
+      id: string,
+      data: CreateInvoiceDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/invoice/${id}/correct`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
      *
      * @tags 📝 Facturas
      * @name SubmitInvoice
@@ -1629,6 +2259,23 @@ export class Api<
     /**
      * No description
      *
+     * @tags 📝 Facturas
+     * @name AnnulInvoice
+     * @summary Anular una factura ya remitida
+     * @request POST:/invoice/{id}/annul
+     * @secure
+     */
+    annulInvoice: (id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/invoice/${id}/annul`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
      * @tags 📝 Facturas, Internal
      * @name InvoiceControllerGetDashboardStats
      * @request GET:/invoice/dashboard/stats
@@ -1636,6 +2283,20 @@ export class Api<
     invoiceControllerGetDashboardStats: (params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/invoice/dashboard/stats`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags 📝 Facturas, Internal
+     * @name InvoiceControllerGetPlatformStats
+     * @request GET:/invoice/dashboard/platform
+     */
+    invoiceControllerGetPlatformStats: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/invoice/dashboard/platform`,
         method: "GET",
         ...params,
       }),
@@ -1661,7 +2322,7 @@ export class Api<
       }),
 
     /**
-     * @description Marca un error como resuelto después de haber aplicado las acciones correctivas necesarias.
+     * No description
      *
      * @tags 📝 Facturas
      * @name ResolveError
@@ -1677,27 +2338,9 @@ export class Api<
         ...params,
       }),
   };
-  reader = {
-    /**
-     * @description Extrae y procesa automáticamente los datos de una factura desde una imagen o PDF utilizando OCR e IA.
-     *
-     * @tags 🛠️ Herramientas
-     * @name ReadInvoice
-     * @summary Leer datos de factura
-     * @request POST:/reader
-     * @secure
-     */
-    readInvoice: (params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/reader`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-  };
   makeup = {
     /**
-     * @description Genera un PDF personalizado de factura con branding, colores y plantillas configurables para impresión o envío.
+     * No description
      *
      * @tags 🛠️ Herramientas
      * @name MakeupPdf
@@ -1712,6 +2355,24 @@ export class Api<
         body: data,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+  };
+  reader = {
+    /**
+     * No description
+     *
+     * @tags 🛠️ Herramientas
+     * @name ReadInvoice
+     * @summary Leer datos de factura
+     * @request POST:/reader
+     * @secure
+     */
+    readInvoice: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/reader`,
+        method: "POST",
+        secure: true,
         ...params,
       }),
   };

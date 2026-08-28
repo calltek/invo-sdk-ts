@@ -2,7 +2,7 @@ import 'dotenv/config'
 import path from 'path'
 import { generateApi } from 'swagger-typescript-api'
 
-const env = process.env.INVO_ENV || 'production'
+const env = process.argv[2] || process.env.INVO_ENV || 'production'
 
 // Usar swagger-internal.json que incluye todos los endpoints (incluidos los internos)
 let url = 'https://api.invo.rest/swagger-internal.json'
