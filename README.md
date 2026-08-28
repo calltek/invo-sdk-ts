@@ -159,6 +159,32 @@ const result = await sdk.store({
 })
 ```
 
+#### Rectificative Invoice (R1-R5)
+
+```typescript
+// Every rectificative type (R1-R5) requires both rectifiedInvoiceIds and
+// rectificationType — the backend rejects the request without them.
+const result = await sdk.store({
+  issueDate: new Date().toISOString(),
+  invoiceNumber: 'FAC-2024-003',
+  externalId: 'rectification-001',
+  totalAmount: -121.00, // negative on a credit note
+  customerName: 'Cliente SL',
+  customerTaxId: 'B12345678',
+  emitterName: 'Mi Empresa SL',
+  emitterTaxId: 'B87654321',
+  description: 'Anulación de la factura FAC-2024-001',
+  type: 'R1',
+  rectifiedInvoiceIds: ['<uuid-de-la-factura-original>'],
+  rectificationType: 'S', // "S" (por sustitución) o "I" (por diferencias)
+  taxLines: [{
+    taxRate: 21,
+    baseAmount: -100.00,
+    taxAmount: -21.00
+  }]
+})
+```
+
 ### Reading Invoice from File
 
 ```typescript
@@ -360,11 +386,13 @@ interface CreateInvoiceDto {
   totalAmount: number            // Total including taxes
   customerName: string           // 1-120 chars
   customerTaxId: string          // NIF/CIF
-  emitterName: string            // 1-120 chars
+  emitterName?: string           // 1-120 chars. Optional: falls back to the name on the certificate
   emitterTaxId: string           // NIF/CIF
   taxLines: InvoiceTaxLineDto[]  // Minimum 1 required
   currency?: string              // Default: "EUR"
-  type?: string                  // Default: "F1"
+  type?: 'F1' | 'F2' | 'F3' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5'  // Default: "F1"
+  rectifiedInvoiceIds?: string[]           // Required for R1-R5: UUIDs of the invoices being rectified
+  rectificationType?: 'S' | 'I'            // Required for R1-R5: "S" (substitution) or "I" (difference)
   description?: string           // 1-500 chars
 }
 
