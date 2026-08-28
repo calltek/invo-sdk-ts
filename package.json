@@ -1,6 +1,6 @@
 {
     "name": "@calltek/invo-sdk",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "type": "module",
     "description": "INVO SDK Typescript",
     "main": "./dist/index.js",

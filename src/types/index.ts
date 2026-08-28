@@ -56,7 +56,6 @@ export type {
     UserDto,
     LoginDto,
     LoginResponseDto,
-    OAuthCallbackDto,
     InvoiceTaxLineDto,
     CreateInvoiceDto,
     UpdateBatchStatusDto,
