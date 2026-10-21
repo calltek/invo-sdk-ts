@@ -1,21 +1,17 @@
-# INVO SDK
+# @calltek/invo-sdk
 
-Backend SDK for INVO API - Simplified authentication and invoice management with full TypeScript support.
+TypeScript SDK for the **ORUGA VERI\*FACTU API**: register invoices with the
+AEAT (VERI\*FACTU), follow their status, get the QR and verify webhooks.
 
-## Features
+> **v1 talks to ORUGA** (`https://api.oru.ga/v1`), which replaces the INVO API.
+> Code written for v0 keeps working (`new InvoSDK({ apiToken })` + `store()`):
+> you only need an ORUGA API key (`ogk_…`). See the
+> [migration guide](./CHANGELOG.md#migration-guide-v0--v1).
 
-✅ **TypeScript Native** - Complete type definitions and autocomplete
-✅ **Backend Optimized** - Designed for Node.js/Backend applications
-✅ **API Token Authentication** - Secure authentication with automatic login
-✅ **Zero Configuration** - Works out of the box with minimal setup
-✅ **Invoice Management** - Create and manage VeriFactu invoices
-✅ **Invoice Reader** - Extract data from PDF and XML invoices
-✅ **PDF Generator** - Generate branded invoice PDFs
-✅ **Webhook Support** - Receive invoice status updates
-✅ **Workspace Support** - Multi-tenant scenarios
-✅ **Multi-Environment** - Production and sandbox modes
-✅ **Zero Dependencies** - No external dependencies
-✅ **Generic Request Method** - Call any API endpoint with authentication
+- Zero runtime dependencies, Node ≥ 18 (native `fetch`, `node:crypto`).
+- Typed 1:1 with the API (`sdk.verifactu.*`, snake_case).
+- Automatic `Idempotency-Key`, timeouts, retries with backoff on 429/5xx.
+- Webhook signature verification.
 
 ## Installation
 
@@ -23,503 +19,279 @@ Backend SDK for INVO API - Simplified authentication and invoice management with
 npm install @calltek/invo-sdk
 ```
 
-```bash
-yarn add @calltek/invo-sdk
-```
-
-```bash
-pnpm add @calltek/invo-sdk
-```
-
-## Quick Start
+## Quick start
 
 ```typescript
 import { InvoSDK } from '@calltek/invo-sdk'
 
-// Create SDK instance (login is automatic!)
 const sdk = new InvoSDK({
-  apiToken: process.env.INVO_API_TOKEN!
-  // environment is auto-detected from token prefix
+    apiKey: process.env.ORUGA_API_KEY!, // ogk_…
+    // baseUrl: 'https://api.oru.ga/v1', // default
 })
 
-// Create an invoice - authentication happens automatically
-const result = await sdk.store({
-  issueDate: new Date().toISOString(),
-  invoiceNumber: 'FAC-2024-001',
-  externalId: 'order-12345',
-  totalAmount: 1210.00,
-  customerName: 'Cliente Ejemplo SL',
-  customerTaxId: 'B12345678',
-  emitterName: 'Mi Empresa SL',
-  emitterTaxId: 'B87654321',
-  description: 'Servicios de consultoría tecnológica',
-  taxLines: [{
-    taxRate: 21,
-    baseAmount: 1000.00,
-    taxAmount: 210.00
-  }]
+const invoice = await sdk.verifactu.invoices.create({
+    issuer_nif: 'B12345678', // a taxpayer of your workspace
+    invoice_number: 'FAC-2026-001',
+    issue_date: '2026-10-21',
+    description: 'Servicios de consultoría',
+    recipients: [{ name: 'Cliente SL', nif: 'B87654321' }],
+    tax_lines: [{ tax_rate: '21', base: '1000.00', tax_amount: '210.00' }],
+    total: '1210.00',
+    external_id: 'order-12345',
+    callback_url: 'https://myapp.com/webhooks/verifactu',
 })
 
-console.log('Invoice created:', result.invoiceId)
-console.log('Chain index:', result.chainIndex)
+console.log(invoice.id, invoice.status) // 42 'queued'
+
+// Later: status, CSV and QR
+const detail = await sdk.verifactu.invoices.get(invoice.id)
+const { qr_payload, svg } = await sdk.verifactu.invoices.qr(invoice.id)
 ```
+
+The record is chained and queued immediately; ORUGA submits it to the AEAT in
+batches and the status moves to `accepted`, `accepted_with_warnings`,
+`rejected` or `failed`. Use a webhook (below) instead of polling.
+
+### Prerequisites in ORUGA
+
+- An ORUGA workspace with the **`verifactu`** app active.
+- An **API key** (`ogk_…`) of that workspace with the scopes you need, e.g.
+  `verifactu_invoice.*`, `verifactu_record.view`, `verifactu_taxpayer.view`,
+  `verifactu_error.view`, `verifactu_webhook.*`. The key implies the workspace:
+  no workspace header is needed.
+- The issuer registered as a **taxpayer** (`nif`, `legal_name` exactly as in
+  the AEAT census, `environment` `test` = AEAT pre-production or
+  `production`) with a verified representation model.
+
+## v0 compatibility: `store()`
+
+v0 code keeps working. `store()` keeps its camelCase DTO, its optional
+`callback` and its result, and maps everything to `POST /verifactu/invoices`:
+
+```typescript
+const sdk = new InvoSDK({
+    apiToken: process.env.INVO_API_TOKEN!, // now an ORUGA key: ogk_…
+    environment: 'sandbox', // optional: picks the taxpayer's environment (sandbox → test)
+})
+
+const result = await sdk.store(
+    {
+        issueDate: new Date().toISOString(),
+        invoiceNumber: 'FAC-2026-001',
+        externalId: 'order-12345',
+        totalAmount: 1210,
+        customerName: 'Cliente SL',
+        customerTaxId: 'B87654321',
+        emitterTaxId: 'B12345678',
+        taxLines: [{ taxRate: 21, baseAmount: 1000, taxAmount: 210 }],
+    },
+    'https://myapp.com/webhooks/verifactu',
+)
+
+// { success: true, invoiceId: '42', chainIndex: 9, invoice: { …full v1 invoice } }
+```
+
+| v0 (`CreateInvoiceDto`) | v1 body |
+| --- | --- |
+| `issueDate` | `issue_date` (a zone-less date-time keeps its date part) |
+| `invoiceNumber` | `invoice_number` |
+| `externalId` | `external_id` |
+| `totalAmount` | `total` (decimal string; float noise rounded to cents) |
+| `currency` | — (must be `EUR` or omitted) |
+| `customerName` + `customerTaxId` | `recipients[0]`: `{ name, nif }`, or `{ name, id_type: '02', id }` for an EU VAT number |
+| `emitterName` | — ignored: the AEAT name is the taxpayer's `legal_name` |
+| `emitterTaxId` | `issuer_nif` |
+| config `environment` | `environment` (`sandbox` → `test`), only when configured |
+| `type` | `invoice_type` |
+| `rectificationType` | `rectification_type` |
+| `description` | `description` |
+| `simplifiedQualified` | `simplified_art_7273` |
+| `unidentifiedRecipient` | `unidentified_recipient_art_61d` |
+| `billingAgreementNumber` | `billing_agreement_number` |
+| `rectifiedInvoiceIds[]` | `rectified_invoices[].invoice_id` (ORUGA ids, not INVO UUIDs) |
+| `substitutedInvoiceIds[]` | `substituted_invoices[].invoice_id` |
+| `callback` / 2nd argument | `callback_url` |
+| `taxLines[].taxType` | `tax_type` (`04` → `05`, the AEAT code for "Others") |
+| `taxLines[].taxRate` | `tax_rate` |
+| `taxLines[].baseAmount` | `base` |
+| `taxLines[].taxAmount` | `tax_amount` |
+| `taxLines[].surchargeRate` / `surchargeAmount` | `surcharge_rate` / `surcharge_amount` |
+| `taxLines[].taxExemptionReason` / `operationType` | `operation` (mutually exclusive) |
+| `taxLines[].regimeKey` | `regime_key` |
+
+Optional v1 extras on the same DTO: `taxpayerId` (→ `taxpayer_id`),
+`operationDate`, and `rectifiedAmounts`. For a rectification by substitution
+(`R1`–`R5` + `rectificationType: 'S'`) the SDK computes ImporteRectificacion from
+the rectified invoices, as INVO did, unless you pass `rectifiedAmounts`.
+
+Pass a third argument for v1 request options, e.g. a stable idempotency key:
+``sdk.store(dto, callback, { idempotencyKey: `order-${orderId}` })``.
+
+### Removed in v1
+
+| v0 | v1 |
+| --- | --- |
+| `read(file)` (AI reader) | Not available: throws `InvoNotAvailableError` |
+| `pdf(data)` (branded PDF) | Not available: throws `InvoNotAvailableError`. Print the QR from `verifactu.invoices.qr(id)` on your own PDF |
+| `getAccessToken()` | Deprecated, always `null` (no JWT; the key is never exposed) |
+| `getUser()` | Deprecated, always `null` |
+| `isAuthenticated()` | Deprecated, `true` when a key is configured |
+| `invo_tok_…` tokens | Rejected with `InvoConfigError`: use an ORUGA API key |
+| `request('/invoice/store', …)` | `request()` is relative to the ORUGA base URL (e.g. `/verifactu/taxpayers`) |
+
+## API reference (`sdk.verifactu`)
+
+All methods take an optional last argument `RequestOptions`:
+`{ idempotencyKey?, signal?, timeout?, maxRetries?, headers? }`.
+Lists answer `{ data, total_items }` and accept `page`, `limit` (≤ 100), `sort`, `order`.
+
+### Invoices
+
+| Method | Endpoint |
+| --- | --- |
+| `invoices.create(body)` | `POST /verifactu/invoices` (Idempotency-Key automatic) |
+| `invoices.bulk(invoices)` | `POST /verifactu/invoices/bulk` — up to 50; 200 with per-invoice `results` |
+| `invoices.list(query)` | `GET /verifactu/invoices` (`taxpayer_id`, `status`, `record_type`, `invoice_number`, `external_id`, `invoice_type`, `source`, `date_from`, `date_to`) |
+| `invoices.search(body)` | `POST /verifactu/invoices/search` (filter DSL, e.g. `{ filter: { 'current_record.status': 'rejected' } }`) |
+| `invoices.get(id)` | `GET /verifactu/invoices/:id` — with its record history |
+| `invoices.records(id)` | `GET /verifactu/invoices/:id/records` |
+| `invoices.qr(id)` / `qrSvg(id)` | `GET /verifactu/invoices/:id/qr` (JSON / `?format=svg`) |
+| `invoices.correct(id, body)` | `POST /verifactu/invoices/:id/correct` — subsanación |
+| `invoices.annul(id)` | `POST /verifactu/invoices/:id/annul` |
+
+### Records, taxpayers, errors, webhook
+
+| Method | Endpoint |
+| --- | --- |
+| `records.list(query)` / `records.search(body)` | `GET /verifactu/records`, `POST /verifactu/records/search` |
+| `records.get(id)` | `GET /verifactu/records/:id` |
+| `records.xml(id)` | `GET /verifactu/records/:id/xml` — XML sent/received per attempt |
+| `records.resend(id)` | `POST /verifactu/records/:id/resend` — only `failed` records |
+| `taxpayers.list / create / get / update / delete` | `/verifactu/taxpayers[/:id]` |
+| `taxpayers.representations.list / create / verify / revoke / document` | `/verifactu/taxpayers/:id/representations…` (`create` is multipart: pass `file: Blob`) |
+| `errors.list(query)` / `errors.resolve(id)` | `GET /verifactu/errors`, `PATCH /verifactu/errors/:id/resolve` |
+| `webhook.get()` / `update(body)` / `rotateSecret()` / `deliveries(query)` | `/verifactu/webhook…` |
+
+Amounts are decimal strings in responses (`"121.00"`); on input both strings
+and numbers are accepted (prefer strings).
+
+## Webhooks
+
+Configure a workspace webhook once (or send `callback_url` per invoice):
+
+```typescript
+const { secret } = await sdk.verifactu.webhook.update({ url: 'https://myapp.com/webhooks/verifactu' })
+// `secret` (whsec_…) is shown only now (and on rotateSecret()): store it
+```
+
+Each verdict (`accepted`, `accepted_with_warnings`, `rejected`, `failed`) is
+POSTed with the same headers as INVO:
+
+```
+X-Invo-Timestamp: <unix seconds>
+X-Invo-Signature: sha256=<hex HMAC-SHA256(secret, "<timestamp>.<raw body>")>
+X-Oruga-Event: verifactu_record.status_changed
+X-Oruga-Delivery: <delivery id>
+```
+
+Verify it against the **raw** body:
+
+```typescript
+import express from 'express'
+import { verifyWebhookSignature, type VerifactuWebhookEvent } from '@calltek/invo-sdk'
+
+app.post('/webhooks/verifactu', express.raw({ type: 'application/json' }), (req, res) => {
+    const valid = verifyWebhookSignature({
+        secret: process.env.VERIFACTU_WEBHOOK_SECRET!,
+        timestamp: req.header('X-Invo-Timestamp'),
+        signature: req.header('X-Invo-Signature'),
+        body: req.body, // Buffer
+        // toleranceSeconds: 300 (default)
+    })
+    if (!valid) return res.sendStatus(401)
+
+    const event = JSON.parse(req.body.toString('utf8')) as VerifactuWebhookEvent
+    // event.invoice_id = your external_id; event.invo_status = 1 registered / 0 not / AEAT error code
+    // event.data.status, event.data.aeat_csv, event.data.aeat_error_code…
+    res.sendStatus(200)
+})
+```
+
+`constructWebhookEvent(params)` does both steps and throws `InvoValidationError`
+if the signature is invalid. Deliveries are retried with backoff for hours:
+deduplicate by `delivery_id`.
 
 ## Configuration
 
 ```typescript
-interface InvoSDKConfig {
-  apiToken: string                      // Required: API token from INVO platform
-  environment?: 'production' | 'sandbox' // Optional: Auto-detected from token
-  onError?: (error: Error) => void      // Optional: Error callback
-  debug?: boolean                       // Optional: Enable debug logging
-}
-```
-
-**Important:** The workspace is automatically determined by the API token. Each API token is associated with a specific workspace, so you don't need to specify it separately.
-
-## Usage Examples
-
-### Basic Setup
-
-```typescript
-import { InvoSDK } from '@calltek/invo-sdk'
-
-// Simple setup - workspace is determined by the API token
-const sdk = new InvoSDK({
-  apiToken: process.env.INVO_API_TOKEN!
+new InvoSDK({
+    apiKey: 'ogk_…', // or apiToken (v0 alias)
+    baseUrl: 'https://api.oru.ga/v1', // default
+    environment: 'production', // only for store() taxpayer resolution: 'production' | 'sandbox' | 'test'
+    timeout: 30_000, // ms per attempt
+    maxRetries: 3, // 429 / 5xx / network, idempotent requests only
+    retryBaseDelay: 500, // ms, exponential backoff with jitter
+    maxRetryDelay: 60_000, // longest Retry-After honoured
+    onError: (error) => {}, // every error thrown
+    debug: true, // or (message, meta) => logger.debug(message, meta); never logs the API key
+    fetch: customFetch, // optional
 })
 ```
 
-### Creating Invoices
+### Retries and idempotency
 
-#### Simple Invoice
+- `invoices.create`, `bulk`, `correct`, `annul` and `store()` always send an
+  `Idempotency-Key` (a random UUID unless you pass `idempotencyKey`). Retries reuse
+  it, so a retried write never duplicates an invoice. Same key + same body within
+  24 h returns the stored response; same key + different body is a 422
+  `IDEMPOTENCY_KEY_REUSED`.
+- Retries happen on 429 (honouring `Retry-After`), 5xx and network errors/timeouts,
+  only for GET/PUT/DELETE, searches and writes with an Idempotency-Key.
+- Rate limit: 300 requests/min per API key by default (`X-RateLimit-*` headers).
 
-```typescript
-const result = await sdk.store({
-  issueDate: new Date().toISOString(),
-  invoiceNumber: 'FAC-2024-001',
-  externalId: 'order-12345',
-  totalAmount: 1210.00,
-  customerName: 'Cliente SL',
-  customerTaxId: 'B12345678',
-  emitterName: 'Mi Empresa SL',
-  emitterTaxId: 'B87654321',
-  description: 'Servicios de consultoría',
-  taxLines: [{
-    taxRate: 21,
-    baseAmount: 1000.00,
-    taxAmount: 210.00
-  }]
-})
-```
-
-#### Invoice with Webhook Callback
+## Errors
 
 ```typescript
-// Receive status updates when the invoice is processed
-const result = await sdk.store({
-  issueDate: new Date().toISOString(),
-  invoiceNumber: 'FAC-2024-001',
-  // ... invoice data
-}, 'https://myapp.com/webhooks/invoice-status')
-
-// Your webhook will be called when the invoice status changes
-```
-
-#### Invoice with Multiple Tax Rates
-
-```typescript
-const result = await sdk.store({
-  issueDate: new Date().toISOString(),
-  invoiceNumber: 'FAC-2024-002',
-  externalId: 'multi-tax-001',
-  totalAmount: 1864.00,
-  customerName: 'Cliente SL',
-  customerTaxId: 'B12345678',
-  emitterName: 'Mi Empresa SL',
-  emitterTaxId: 'B87654321',
-  description: 'Venta mixta de productos',
-  taxLines: [
-    {
-      taxRate: 21,
-      baseAmount: 1000.00,
-      taxAmount: 210.00
-    },
-    {
-      taxRate: 10,
-      baseAmount: 500.00,
-      taxAmount: 50.00
-    },
-    {
-      taxRate: 4,
-      baseAmount: 100.00,
-      taxAmount: 4.00
-    }
-  ]
-})
-```
-
-#### Rectificative Invoice (R1-R5)
-
-```typescript
-// Every rectificative type (R1-R5) requires both rectifiedInvoiceIds and
-// rectificationType — the backend rejects the request without them.
-const result = await sdk.store({
-  issueDate: new Date().toISOString(),
-  invoiceNumber: 'FAC-2024-003',
-  externalId: 'rectification-001',
-  totalAmount: -121.00, // negative on a credit note
-  customerName: 'Cliente SL',
-  customerTaxId: 'B12345678',
-  emitterName: 'Mi Empresa SL',
-  emitterTaxId: 'B87654321',
-  description: 'Anulación de la factura FAC-2024-001',
-  type: 'R1',
-  rectifiedInvoiceIds: ['<uuid-de-la-factura-original>'],
-  rectificationType: 'S', // "S" (por sustitución) o "I" (por diferencias)
-  taxLines: [{
-    taxRate: 21,
-    baseAmount: -100.00,
-    taxAmount: -21.00
-  }]
-})
-```
-
-### Reading Invoice from File
-
-```typescript
-import fs from 'fs'
-
-// Read invoice from a PDF file
-const fileBuffer = fs.readFileSync('invoice.pdf')
-const file = new File([fileBuffer], 'invoice.pdf', { type: 'application/pdf' })
-
-const invoiceData = await sdk.read(file)
-console.log('Parsed invoice:', invoiceData)
-```
-
-### Generating PDF Invoice
-
-```typescript
-import fs from 'fs'
-
-const pdfBuffer = await sdk.pdf({
-  id: 'INV-2024-001',
-  date: '2024-01-15',
-  branding: {
-    logo: 'https://example.com/logo.png',
-    favicon: 'https://example.com/favicon.ico',
-    accent_color: '#0066cc',
-    foreground_color: '#ffffff'
-  },
-  client: {
-    name: 'John Doe',
-    cif: '12345678A',
-    address: 'Street 123',
-    phone: '+34 666 123 123',
-    email: 'john@example.com'
-  },
-  business: {
-    name: 'Business SL',
-    cif: 'B12345678',
-    address: 'Avenue 456',
-    phone: '+34 911 123 123',
-    email: 'business@example.com'
-  },
-  total: 1210,
-  subtotal: 1000,
-  tax_value: 210,
-  tax_percent: 21,
-  surcharge_value: 0,
-  surcharge_percent: 0,
-  observations: 'Thank you!',
-  payment_instructions: 'Bank transfer to ES00...',
-  RGPD: 'Your data is protected.',
-  type: 'invoice',
-  template: 'classic',
-  concepts: []
-})
-
-// Save the PDF
-fs.writeFileSync('invoice.pdf', Buffer.from(pdfBuffer))
-```
-
-### Express.js Integration
-
-```typescript
-import express from 'express'
-import { InvoSDK } from '@calltek/invo-sdk'
-
-const app = express()
-app.use(express.json())
-
-// Initialize SDK (login is automatic on first request)
-const sdk = new InvoSDK({
-  apiToken: process.env.INVO_API_TOKEN!
-})
-
-// Invoice creation endpoint
-app.post('/api/invoices', async (req, res) => {
-  try {
-    const result = await sdk.store(req.body, req.body.callback)
-    res.json(result)
-  } catch (error) {
-    res.status(500).json({ error: error.message })
-  }
-})
-
-app.listen(3000, () => {
-  console.log('Server running on port 3000')
-})
-```
-
-### NestJS Integration
-
-```typescript
-import { Injectable } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
-import { InvoSDK } from '@calltek/invo-sdk'
-
-@Injectable()
-export class InvoiceService {
-  private sdk: InvoSDK
-
-  constructor(private configService: ConfigService) {
-    this.sdk = new InvoSDK({
-      apiToken: this.configService.get('INVO_API_TOKEN')!
-    })
-  }
-
-  async createInvoice(data: CreateInvoiceDto, callback?: string) {
-    return this.sdk.store(data, callback)
-  }
-
-  async readInvoice(file: File) {
-    return this.sdk.read(file)
-  }
-
-  async generatePDF(data: MakeupPDFDto) {
-    return this.sdk.pdf(data)
-  }
-}
-```
-
-### Multi-tenant with Different API Tokens
-
-```typescript
-import { InvoSDK } from '@calltek/invo-sdk'
-
-// Tenant 1 - Each API token is already associated with a workspace
-const tenant1SDK = new InvoSDK({
-  apiToken: process.env.TENANT1_API_TOKEN!
-})
-
-// Tenant 2 - Different API token for different workspace
-const tenant2SDK = new InvoSDK({
-  apiToken: process.env.TENANT2_API_TOKEN!
-})
-
-// Each operates independently with its own workspace
-await tenant1SDK.store({...})
-await tenant2SDK.store({...})
-```
-
-## API Reference
-
-### Main Methods
-
-#### `store(data, callback?): Promise<CreateInvoiceResult>`
-Create and submit a new invoice.
-
-```typescript
-const result = await sdk.store(invoiceData, 'https://webhook.url')
-```
-
-#### `read(file): Promise<InvoiceReaderResult>`
-Read and parse invoice data from a file.
-
-```typescript
-const data = await sdk.read(file)
-```
-
-#### `pdf(data): Promise<ArrayBuffer>`
-Generate a PDF invoice with custom branding.
-
-```typescript
-const pdfBuffer = await sdk.pdf(pdfData)
-```
-
-#### `request<T>(endpoint, method?, body?): Promise<T>`
-Make a generic authenticated request.
-
-```typescript
-const data = await sdk.request('/endpoint', 'GET')
-```
-
-### Utility Methods
-
-#### `getAccessToken(): string | null`
-Get the current access token.
-
-#### `getUser(): User | null`
-Get the current user information.
-
-#### `isAuthenticated(): boolean`
-Check if authenticated.
-
-### Properties
-
-#### `environment: 'production' | 'sandbox'`
-Current environment (read-only).
-
-```typescript
-console.log(sdk.environment) // 'production'
-```
-
-## Types
-
-```typescript
-interface CreateInvoiceDto {
-  issueDate: string              // ISO 8601 format
-  invoiceNumber: string          // 1-60 chars
-  externalId: string             // 1-100 chars
-  totalAmount: number            // Total including taxes
-  customerName: string           // 1-120 chars
-  customerTaxId: string          // NIF/CIF
-  emitterName?: string           // 1-120 chars. Optional: falls back to the name on the certificate
-  emitterTaxId: string           // NIF/CIF
-  taxLines: InvoiceTaxLineDto[]  // Minimum 1 required
-  currency?: string              // Default: "EUR"
-  type?: 'F1' | 'F2' | 'F3' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5'  // Default: "F1"
-  rectifiedInvoiceIds?: string[]           // Required for R1-R5: UUIDs of the invoices being rectified
-  rectificationType?: 'S' | 'I'            // Required for R1-R5: "S" (substitution) or "I" (difference)
-  description?: string           // 1-500 chars
-}
-
-interface InvoiceTaxLineDto {
-  taxRate: number                // 0, 4, 5, 10, 21
-  baseAmount: number             // Base amount
-  taxAmount: number              // Tax amount
-  taxType?: string               // Default: "01" (IVA)
-  surchargeAmount?: number       // Surcharge amount
-  surchargeRate?: number         // Surcharge rate
-  taxExemptionReason?: string    // E1-E6
-  regimeKey?: string             // "01"-"19"
-}
-
-interface CreateInvoiceResult {
-  success: boolean
-  invoiceId: string              // UUID
-  chainIndex: number             // VeriFactu chain index
-}
-```
-
-### Error Classes
-
-```typescript
-import {
-  AuthError,
-  InvalidCredentialsError,
-  TokenExpiredError,
-  NetworkError,
-} from '@calltek/invo-sdk'
+import { InvoApiError } from '@calltek/invo-sdk'
 
 try {
-  await sdk.store({...})
+    await sdk.verifactu.invoices.create(body)
 } catch (error) {
-  if (error instanceof InvalidCredentialsError) {
-    console.error('Invalid API token')
-  } else if (error instanceof NetworkError) {
-    console.error('Network error')
-  } else if (error instanceof TokenExpiredError) {
-    console.error('Token expired')
-  }
+    if (error instanceof InvoApiError) {
+        error.status // 400
+        error.code // 'VERIFACTU_INVOICE_INVALID'
+        error.message // details from the API
+        error.requestId // X-Correlation-Id, for support
+        error.retryAfter // seconds (429)
+    }
 }
 ```
 
-## API Token Management
+| Class | When |
+| --- | --- |
+| `InvoApiError` | The API answered with an error (`{ status, code, message }`) |
+| `InvoAuthError` | 401 (invalid/revoked key) or 403 (missing scope) |
+| `InvoRateLimitError` | 429 `RATE_LIMITED` / `VERIFACTU_BULK_IN_PROGRESS` |
+| `InvoNetworkError` / `InvoTimeoutError` | No response / timeout |
+| `InvoConfigError` | Bad configuration (missing key, INVO token) |
+| `InvoValidationError` | `store()` input that cannot be mapped |
+| `InvoNotAvailableError` | `read()` / `pdf()` |
 
-API tokens must be obtained from your INVO account dashboard. Token management (creation, listing, revocation) is done through the INVO web platform.
-
-**Token Format:**
-```
-invo_tok_prod_*  → production
-invo_tok_sand_*  → sandbox
-```
-
-The SDK automatically detects the environment from the token prefix.
-
-## Environment URLs
-
-- **Production**: `https://api.invo.rest`
-- **Sandbox**: `https://sandbox.invo.rest`
-
-## Documentation
-
-- **[API Tokens Guide](./docs/API_TOKENS.md)** - Complete guide on API tokens
-- **[Examples](./docs/EXAMPLES.md)** - Usage examples and integration patterns
-- **[Testing](./docs/TESTING.md)** - Testing guide
-- **[Publishing](./docs/PUBLISHING.md)** - Publishing guide
+All API and network errors extend the v0 `AuthError` (with `statusCode`), and
+`NetworkError` / `InvalidCredentialsError` are aliases of the new classes, so v0
+`instanceof` checks keep working.
 
 ## Development
 
 ```bash
-# Install dependencies
 npm install
-
-# Build
-npm run build
-
-# Watch mode
-npm run build:watch
-
-# Clean
-npm run clean
-
-# Generate types from Swagger
-npm run types          # Production
-npm run types:sandbox  # Sandbox
+npm run build      # rollup → dist/index.js + dist/index.d.ts
+npm test           # vitest (mocked fetch)
+npm run typecheck
 ```
 
-## Migration from v1.x
-
-If you're migrating from v1.x:
-
-### ❌ Old API (v1.x)
-
-```typescript
-import { createInvoSDK } from 'invo-sdk'
-
-const sdk = createInvoSDK({ email, password })
-await sdk.login()
-await sdk.createInvoice({...})
-await sdk.logout()
-```
-
-### ✅ New API (v2.x)
-
-```typescript
-import { InvoSDK } from '@calltek/invo-sdk'
-
-const sdk = new InvoSDK({ apiToken })
-// Login is automatic!
-await sdk.store({...})
-// No logout needed
-```
-
-**Breaking Changes:**
-- Email/password authentication removed (API token only)
-- `createInvoice` renamed to `store`
-- `readInvoice` renamed to `read`
-- `makeupInvoice` renamed to `pdf`
-- `login()`, `logout()`, `refreshAccessToken()` removed
-- `createInvoSDK` and `createInvoSDKWithToken` helpers removed
-- Use `new InvoSDK()` directly
+Publishing is done by CI on a `v*` tag (see [docs/PUBLISHING.md](./docs/PUBLISHING.md)).
 
 ## License
 
 MIT
-
-## Support
-
-For issues and questions, please open an issue on [GitHub](https://github.com/calltek/invo-sdk/issues).

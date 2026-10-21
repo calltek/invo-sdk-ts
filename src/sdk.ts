@@ -1,423 +1,232 @@
-import { AuthError, InvalidCredentialsError, NetworkError, TokenExpiredError } from './errors'
-import { isTokenExpired } from './utils'
-import type { LoginResponseDto, UserDto, CreateInvoiceDto, MakeupPDFDto } from './types/api.types'
-import type { CreateInvoiceResult, InvoiceReaderResult } from './types/index'
-import type { InvoSDKConfig } from './types/sdk.types'
+import { mapCreateInvoiceDto, rectifiedAmountsFrom } from './compat'
+import { InvoConfigError, InvoNotAvailableError } from './errors'
+import { HttpClient, type HttpMethod } from './http'
+import type {
+    CreateInvoiceDto,
+    CreateInvoiceResult,
+    InvoiceReaderResult,
+    MakeupPDFDto,
+    UserDto,
+} from './types/legacy.types'
+import type { InvoDebugLogger, InvoSDKConfig, RequestOptions } from './types/sdk.types'
+import { VerifactuClient } from './verifactu'
+import { DEFAULT_BASE_URL } from './version'
 
-/**
- * Detect environment from API token prefix
- * @param apiToken - API token to analyze
- * @returns Detected environment or null if cannot be detected
- */
-function detectEnvironmentFromToken(apiToken: string): 'production' | 'sandbox' | null {
-    if (apiToken.startsWith('invo_tok_prod_')) {
-        return 'production'
+const API_KEY_PREFIX = 'ogk_'
+const INVO_TOKEN_PREFIX = 'invo_tok_'
+
+function resolveApiKey(config: InvoSDKConfig): string {
+    const key = (config.apiKey ?? config.apiToken ?? '').trim()
+    if (!key) {
+        throw new InvoConfigError(
+            'An ORUGA API key is required: new InvoSDK({ apiKey: "ogk_..." })',
+        )
     }
-    if (apiToken.startsWith('invo_tok_sand_')) {
-        return 'sandbox'
+    if (key.startsWith(INVO_TOKEN_PREFIX)) {
+        throw new InvoConfigError(
+            'INVO API tokens (invo_tok_...) no longer work: @calltek/invo-sdk v1 talks to the ORUGA API. ' +
+                'Create an API key (ogk_...) with the verifactu scopes in your ORUGA workspace and pass it as apiKey.',
+        )
     }
-    return null
+    if (!key.startsWith(API_KEY_PREFIX)) {
+        throw new InvoConfigError('Invalid API key: ORUGA API keys start with "ogk_"')
+    }
+    return key
 }
 
+function resolveDebug(debug: InvoSDKConfig['debug']): InvoDebugLogger | undefined {
+    if (!debug) return undefined
+    if (typeof debug === 'function') return debug
+    return (message, meta) => console.debug(message, meta ?? '')
+}
+
+const notAvailable = (method: string, hint: string) =>
+    new InvoNotAvailableError(`InvoSDK.${method}() is not available in @calltek/invo-sdk v1. ${hint}`)
+
 /**
- * INVO SDK for backend applications
- * Provides authentication and invoice management functionality
+ * SDK for the ORUGA VERI*FACTU API.
+ *
+ * @example
+ * ```typescript
+ * const sdk = new InvoSDK({ apiKey: process.env.ORUGA_API_KEY! })
+ *
+ * // v0-compatible
+ * const { invoiceId, chainIndex } = await sdk.store({ ...camelCaseInvoice })
+ *
+ * // v1 API (snake_case, 1:1 with the backend)
+ * const invoice = await sdk.verifactu.invoices.create({ ... })
+ * const qr = await sdk.verifactu.invoices.qr(invoice.id)
+ * ```
  */
 export class InvoSDK {
-    private apiToken: string
-    public environment: 'production' | 'sandbox'
-    private onError: (error: Error) => void
-    private debug: boolean
-
-    // Token storage in memory
-    private accessToken: string | null = null
-    private user: UserDto | null = null
-    private loginPromise: Promise<LoginResponseDto> | null = null
+    /** VERI*FACTU API: invoices, records, taxpayers, errors and webhook. */
+    readonly verifactu: VerifactuClient
 
     /**
-     * Create a new InvoSDK instance
-     *
-     * @example
-     * ```typescript
-     * // Basic usage
-     * const sdk = new InvoSDK({ apiToken: 'invo_tok_prod_...' })
-     *
-     * // With debug logging enabled
-     * const sdk = new InvoSDK({
-     *   apiToken: 'invo_tok_prod_...',
-     *   debug: true
-     * })
-     *
-     * // All methods automatically authenticate when needed
-     * // The workspace is determined by the API token
-     * const invoice = await sdk.store({...})
-     * ```
+     * v0 property. In v1 it only selects the taxpayer environment used by
+     * `store()` when resolving `emitterTaxId` (it does not change the URL).
+     * `undefined` unless configured.
      */
+    environment: 'production' | 'sandbox' | 'test' | undefined
+
+    private readonly http: HttpClient
+    private readonly hasApiKey: boolean
+
     constructor(config: InvoSDKConfig) {
-        if (config.environment && !['production', 'sandbox'].includes(config.environment)) {
-            throw new Error('Invalid environment. Allowed values are production, sandbox.')
+        if (!config || typeof config !== 'object') {
+            throw new InvoConfigError('InvoSDK needs a config object: new InvoSDK({ apiKey })')
         }
-
-        this.apiToken = config.apiToken
-        this.debug = config.debug || false
-
-        // Auto-detect environment from API token if not provided
-        const detectedEnv = detectEnvironmentFromToken(this.apiToken)
-        this.environment = config.environment || detectedEnv || 'production'
-
-        this.onError = config.onError || (() => {})
-    }
-
-    /**
-     * Get the API base URL based on environment
-     */
-    get apiUrl(): string {
-        return this.environment === 'production'
-            ? 'https://api.invo.rest'
-            : 'https://sandbox.invo.rest'
-    }
-
-    /**
-     * Ensure the SDK is authenticated
-     * Automatically logs in with API token if not already authenticated
-     */
-    private async ensureAuthenticated(): Promise<void> {
-        // Already authenticated
-        if (this.accessToken && !isTokenExpired(this.accessToken)) {
-            return
-        }
-
-        // Login in progress, wait for it
-        if (this.loginPromise) {
-            await this.loginPromise
-            return
-        }
-
-        // Auto-login with API token
-        this.loginPromise = this.loginWithToken()
-        try {
-            await this.loginPromise
-        } finally {
-            this.loginPromise = null
-        }
-    }
-
-    /**
-     * Make authenticated API request
-     */
-    private async apiRequest<T>(
-        endpoint: string,
-        method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
-        body?: unknown,
-        requiresAuth = true,
-        options?: {
-            responseType?: 'json' | 'arrayBuffer'
-            contentType?: string | null
-            debug?: boolean
-        },
-    ): Promise<T> {
-        try {
-            const url = `${this.apiUrl}${endpoint}`
-            const headers: HeadersInit = {}
-
-            // Optional debug logging
-            if (this.debug) {
-                console.log('API Request:', {
-                    url,
-                    method,
-                    body: body instanceof FormData ? '[FormData]' : body,
-                })
-            }
-
-            if (options?.contentType !== null) {
-                headers['Content-Type'] = options?.contentType || 'application/json'
-            }
-
-            // Add authorization header if required
-            if (requiresAuth) {
-                // Ensure we're authenticated (auto-login if needed)
-                await this.ensureAuthenticated()
-
-                if (!this.accessToken) {
-                    throw new TokenExpiredError('No access token available after authentication.')
-                }
-
-                headers['Authorization'] = `Bearer ${this.accessToken}`
-            }
-
-            // Prepare body based on content type
-            let requestBody: string | FormData | undefined
-            if (body) {
-                if (body instanceof FormData) {
-                    requestBody = body
-                } else {
-                    requestBody = JSON.stringify(body)
-                }
-            }
-
-            const response = await fetch(url, {
-                method,
-                headers,
-                body: requestBody,
-            })
-
-            if (!response.ok) {
-                const error = await response.json().catch(() => ({
-                    message: 'Request failed',
-                }))
-
-                // Log detailed error information for debugging
-                console.error('API Request Failed:', {
-                    endpoint,
-                    method,
-                    status: response.status,
-                    statusText: response.statusText,
-                    error,
-                    sentBody: body instanceof FormData ? '[FormData]' : body,
-                })
-
-                if (response.status === 401) {
-                    throw new InvalidCredentialsError(error.message || 'Invalid credentials')
-                }
-
-                // Build detailed error message
-                let errorMessage = error.message || 'Request failed'
-
-                // Add validation errors if present
-                if (error.errors) {
-                    const validationErrors = Array.isArray(error.errors)
-                        ? error.errors.join(', ')
-                        : JSON.stringify(error.errors)
-                    errorMessage += ` - Validation errors: ${validationErrors}`
-                }
-
-                throw new AuthError(errorMessage, response.status)
-            }
-
-            // Return based on response type
-            if (options?.responseType === 'arrayBuffer') {
-                const contentType = response.headers.get('content-type') || ''
-
-                // Handle case where server returns JSON with Buffer object
-                if (contentType.includes('application/json')) {
-                    const jsonResponse = await response.json()
-
-                    // Check if response contains a Buffer object (Node.js Buffer format)
-                    if (
-                        jsonResponse.invoice &&
-                        jsonResponse.invoice.type === 'Buffer' &&
-                        Array.isArray(jsonResponse.invoice.data)
-                    ) {
-                        // Convert the array of bytes to ArrayBuffer
-                        const uint8Array = new Uint8Array(jsonResponse.invoice.data)
-                        return uint8Array.buffer as T
-                    }
-
-                    throw new Error('Expected binary PDF or Buffer object in JSON response')
-                }
-
-                // Direct binary response
-                return (await response.arrayBuffer()) as T
-            }
-
-            return response.json()
-        } catch (error) {
-            if (error instanceof AuthError) {
-                this.onError(error)
-                throw error
-            }
-
-            const networkError = new NetworkError(
-                error instanceof Error ? error.message : 'Network request failed',
+        if (
+            config.environment !== undefined &&
+            !['production', 'sandbox', 'test'].includes(config.environment)
+        ) {
+            throw new InvoConfigError(
+                'Invalid environment. Allowed values are production, sandbox (= test), test.',
             )
-            this.onError(networkError)
-            throw networkError
         }
+
+        const apiKey = resolveApiKey(config)
+        this.hasApiKey = true
+        this.environment = config.environment
+
+        this.http = new HttpClient({
+            apiKey,
+            baseUrl: (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, ''),
+            timeout: config.timeout ?? 30_000,
+            maxRetries: Math.max(0, config.maxRetries ?? 3),
+            retryBaseDelay: config.retryBaseDelay ?? 500,
+            maxRetryDelay: config.maxRetryDelay ?? 60_000,
+            fetch: config.fetch,
+            debug: resolveDebug(config.debug),
+            onError: config.onError,
+        })
+        this.verifactu = new VerifactuClient(this.http)
+    }
+
+    /** Base URL of the API (v0 name). */
+    get apiUrl(): string {
+        return this.http.baseUrl
     }
 
     /**
-     * Save authentication tokens in memory
-     */
-    private saveTokens(response: LoginResponseDto): void {
-        this.accessToken = response.access_token
-        this.user = response.user
-    }
-
-    /**
-     * Get current access token
-     */
-    getAccessToken(): string | null {
-        return this.accessToken
-    }
-
-    /**
-     * Get current user
-     */
-    getUser(): UserDto | null {
-        return this.user
-    }
-
-    /**
-     * Check if user is authenticated
-     */
-    isAuthenticated(): boolean {
-        if (!this.accessToken) return false
-
-        try {
-            return !isTokenExpired(this.accessToken)
-        } catch {
-            return false
-        }
-    }
-
-    /**
-     * Create and submit a new invoice
+     * Create and submit an invoice — v0 signature and DTO, mapped to
+     * `POST /verifactu/invoices` (see `src/compat.ts` for the field mapping).
      *
-     * @param data - Invoice data
-     * @param callback - Optional webhook URL to receive status updates for this invoice
+     * @param data - v0 invoice DTO (camelCase)
+     * @param callback - Optional webhook URL for this invoice's status updates
+     * @param options - v1: `idempotencyKey`, `signal`, `timeout`…
+     * @returns `{ success, invoiceId, chainIndex }` as in v0, plus the full `invoice`
      *
      * @example
      * ```typescript
-     * // Without webhook
      * const result = await sdk.store({
-     *   issueDate: new Date().toISOString(),
-     *   invoiceNumber: 'FAC-2024-001',
+     *   issueDate: '2026-10-21',
+     *   invoiceNumber: 'FAC-2026-001',
      *   externalId: 'order-12345',
-     *   totalAmount: 1210.00,
+     *   totalAmount: 121,
      *   customerName: 'Cliente SL',
      *   customerTaxId: 'B12345678',
-     *   emitterName: 'Mi Empresa SL',
      *   emitterTaxId: 'B87654321',
-     *   description: 'Servicios de consultoría',
-     *   taxLines: [
-     *     {
-     *       taxRate: 21,
-     *       baseAmount: 1000.00,
-     *       taxAmount: 210.00
-     *     }
-     *   ]
-     * })
-     *
-     * // With webhook to receive status updates
-     * const result = await sdk.store({...}, 'https://myapp.com/webhooks/invo')
-     * console.log('Invoice created:', result.invoiceId)
+     *   taxLines: [{ taxRate: 21, baseAmount: 100, taxAmount: 21 }],
+     * }, 'https://myapp.com/webhooks/verifactu')
      * ```
      */
-    async store(data: CreateInvoiceDto, callback?: string): Promise<CreateInvoiceResult> {
-        const payload: CreateInvoiceDto & { callback?: string } = {
-            ...data,
-            ...(callback && { callback })
+    async store(
+        data: CreateInvoiceDto,
+        callback?: string,
+        options?: RequestOptions,
+    ): Promise<CreateInvoiceResult> {
+        const body = mapCreateInvoiceDto(data, { callback, environment: this.environment })
+
+        // INVO computed ImporteRectificacion itself for rectifications by
+        // substitution; ORUGA needs it in the body, so the SDK computes it the
+        // same way from the rectified invoices when the caller did not send it.
+        if (
+            body.rectification_type === 'S' &&
+            !body.rectified_amounts &&
+            body.rectified_invoices?.length
+        ) {
+            const rectified = await Promise.all(
+                body.rectified_invoices.map((ref) =>
+                    this.verifactu.invoices.get(ref.invoice_id as number, {
+                        signal: options?.signal,
+                        timeout: options?.timeout,
+                    }),
+                ),
+            )
+            body.rectified_amounts = rectifiedAmountsFrom(rectified)
         }
 
-        return this.apiRequest<CreateInvoiceResult>('/invoice/store', 'POST', payload)
+        const invoice = await this.verifactu.invoices.create(body, options)
+        return {
+            success: true,
+            invoiceId: String(invoice.id),
+            chainIndex: invoice.chain_index as number,
+            invoice,
+        }
     }
 
     /**
-     * Read invoice data from uploaded file
-     *
-     * @param file - The invoice file to read (PDF, XML, etc.)
-     * @returns Parsed invoice data
-     *
-     * @example
-     * ```typescript
-     * const fs = require('fs')
-     * const fileBuffer = fs.readFileSync('invoice.pdf')
-     * const file = new File([fileBuffer], 'invoice.pdf', { type: 'application/pdf' })
-     * const invoiceData = await sdk.read(file)
-     * ```
-     */
-    async read(file: File | Blob): Promise<InvoiceReaderResult> {
-        const formData = new FormData()
-        formData.append('file', file)
-
-        return this.apiRequest<InvoiceReaderResult>('/reader', 'POST', formData, true, {
-            contentType: null,
-        })
-    }
-
-    /**
-     * Generate a PDF invoice with custom branding
-     *
-     * @param data - Invoice makeup configuration
-     * @returns PDF as ArrayBuffer
-     *
-     * @example
-     * ```typescript
-     * const pdfBuffer = await sdk.pdf({
-     *   id: 'INV-2024-001',
-     *   date: '2024-01-15',
-     *   branding: {
-     *     logo: 'https://example.com/logo.png',
-     *     favicon: 'https://example.com/favicon.ico',
-     *     accent_color: '#ff0000',
-     *     foreground_color: '#ffffff'
-     *   },
-     *   client: {
-     *     name: 'John Doe',
-     *     cif: '12345678A',
-     *     address: 'Street 123',
-     *     phone: '+34 666 123 123',
-     *     email: 'john@example.com'
-     *   },
-     *   business: {
-     *     name: 'Business SL',
-     *     cif: 'B12345678',
-     *     address: 'Avenue 456',
-     *     phone: '+34 911 123 123',
-     *     email: 'business@example.com'
-     *   },
-     *   total: 1210,
-     *   subtotal: 1000,
-     *   tax_value: 210,
-     *   tax_percent: 21,
-     *   surcharge_value: 0,
-     *   surcharge_percent: 0,
-     *   observations: 'Thank you!',
-     *   payment_instructions: 'Bank transfer to ES00...',
-     *   RGPD: 'GDPR compliance text',
-     *   type: 'invoice',
-     *   template: 'classic',
-     *   concepts: []
-     * })
-     * // Save the PDF
-     * const fs = require('fs')
-     * fs.writeFileSync('invoice.pdf', Buffer.from(pdfBuffer))
-     * ```
-     */
-    async pdf(data: MakeupPDFDto): Promise<ArrayBuffer> {
-        return this.apiRequest<ArrayBuffer>('/makeup', 'POST', data, true, {
-            responseType: 'arrayBuffer',
-        })
-    }
-
-    /**
-     * Login with API Token (internal method)
-     */
-    private async loginWithToken(): Promise<LoginResponseDto> {
-        const response = await this.apiRequest<LoginResponseDto>(
-            '/auth/token',
-            'POST',
-            { api_token: this.apiToken },
-            false, // Don't require auth for login
-        )
-
-        this.saveTokens(response)
-        return response
-    }
-
-    /**
-     * Make a generic authenticated request to any endpoint
-     *
-     * @param endpoint - The API endpoint (e.g., '/users/me')
-     * @param method - HTTP method
-     * @param body - Request body (optional)
+     * Generic request to any endpoint of the API, relative to `baseUrl`
+     * (e.g. `/verifactu/taxpayers`). Note that v0 INVO paths (`/invoice/store`…)
+     * do not exist in ORUGA.
      */
     async request<T>(
         endpoint: string,
-        method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
+        method: HttpMethod = 'GET',
         body?: unknown,
+        options?: RequestOptions,
     ): Promise<T> {
-        return this.apiRequest<T>(endpoint, method, body)
+        return this.http.request<T>({
+            ...options,
+            method,
+            path: endpoint.startsWith('/') ? endpoint : `/${endpoint}`,
+            body,
+        })
+    }
+
+    // ========================================================================
+    // v0 methods removed in v1
+    // ========================================================================
+
+    /**
+     * @deprecated Not available in v1: the AI invoice reader is not part of the
+     * ORUGA VERI*FACTU API. Always throws `InvoNotAvailableError`.
+     */
+    async read(_file: File | Blob): Promise<InvoiceReaderResult> {
+        throw notAvailable('read', 'The AI invoice reader was an INVO feature and has not been ported to ORUGA.')
+    }
+
+    /**
+     * @deprecated Not available in v1: ORUGA does not render third-party PDFs.
+     * Print the QR on your own PDF with `sdk.verifactu.invoices.qr(id)` (or
+     * `qrSvg`). Always throws `InvoNotAvailableError`.
+     */
+    async pdf(_data: MakeupPDFDto): Promise<ArrayBuffer> {
+        throw notAvailable(
+            'pdf',
+            'Render the PDF in your system and print the VERI*FACTU QR from sdk.verifactu.invoices.qr(invoiceId).',
+        )
+    }
+
+    /**
+     * @deprecated v1 sends the API key directly; there is no access token.
+     * Always returns `null` (it never exposes the API key).
+     */
+    getAccessToken(): string | null {
+        return null
+    }
+
+    /** @deprecated There is no user session with an API key. Always returns `null`. */
+    getUser(): UserDto | null {
+        return null
+    }
+
+    /**
+     * @deprecated There is no session in v1. Returns `true` when an API key is
+     * configured; it does not check that the key is valid (any call will).
+     */
+    isAuthenticated(): boolean {
+        return this.hasApiKey
     }
 }
-

@@ -2,37 +2,6 @@
  * Type exports
  */
 
-export interface DecodedToken {
-    sub: string
-    email: string
-    exp: number
-    iat: number
-    [key: string]: unknown
-}
-export interface CreateInvoiceResult {
-    success: boolean
-    invoiceId: string
-    chainIndex: number
-}
-
-/**
- * Invoice reader result
- */
-export type InvoiceReaderResult = Record<string, unknown>
-
-// SDK types
-export type { InvoSDKConfig } from './sdk.types'
-
-// Auto-generated API types
-export type {
-    UserDto,
-    LoginDto,
-    LoginResponseDto,
-    InvoiceTaxLineDto,
-    CreateInvoiceDto,
-    UpdateBatchStatusDto,
-    MakeupPDFDto,
-    MakeupPDFBrandDto,
-    MakeupPDFClientDto,
-    MakeupPDFBusinessDto,
-} from './api.types'
+export type { InvoSDKConfig, InvoDebugLogger, RequestOptions } from './sdk.types'
+export * from './legacy.types'
+export * from './verifactu.types'
