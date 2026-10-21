@@ -1,9 +1,12 @@
-import { DecodedToken } from './types'
+/**
+ * v0 JWT helpers. The v1 SDK sends the ORUGA API key directly and never handles
+ * JWTs; these stay exported only so v0 imports keep compiling.
+ */
+
+import type { DecodedToken } from './types/legacy.types'
 import { InvalidTokenError } from './errors'
 
-/**
- * Decode a JWT token
- */
+/** @deprecated Not used by the SDK since v1. */
 export function decodeJWT(token: string): DecodedToken {
     try {
         const base64Url = token.split('.')[1]
@@ -20,14 +23,12 @@ export function decodeJWT(token: string): DecodedToken {
         )
 
         return JSON.parse(jsonPayload) as DecodedToken
-    } catch (error) {
+    } catch {
         throw new InvalidTokenError('Failed to decode token')
     }
 }
 
-/**
- * Check if a token is expired
- */
+/** @deprecated Not used by the SDK since v1. */
 export function isTokenExpired(token: string, bufferSeconds = 0): boolean {
     try {
         const decoded = decodeJWT(token)
@@ -38,9 +39,7 @@ export function isTokenExpired(token: string, bufferSeconds = 0): boolean {
     }
 }
 
-/**
- * Get seconds until token expires
- */
+/** @deprecated Not used by the SDK since v1. */
 export function getSecondsUntilExpiration(token: string): number {
     try {
         const decoded = decodeJWT(token)
@@ -51,9 +50,7 @@ export function getSecondsUntilExpiration(token: string): number {
     }
 }
 
-/**
- * Validate email format
- */
+/** @deprecated Not used by the SDK since v1. */
 export function isValidEmail(email: string): boolean {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     return emailRegex.test(email)

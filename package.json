@@ -1,44 +1,44 @@
 {
     "name": "@calltek/invo-sdk",
-    "version": "0.2.0",
+    "version": "1.0.0",
     "type": "module",
-    "description": "INVO SDK Typescript",
+    "description": "TypeScript SDK for the ORUGA VERI*FACTU API (formerly INVO)",
     "main": "./dist/index.js",
     "module": "./dist/index.js",
     "types": "./dist/index.d.ts",
     "exports": {
         ".": {
+            "types": "./dist/index.d.ts",
             "import": "./dist/index.js",
-            "require": "./dist/index.js",
-            "types": "./dist/index.d.ts"
+            "default": "./dist/index.js"
         }
     },
     "files": [
         "dist",
         "README.md",
+        "CHANGELOG.md",
         "LICENSE"
     ],
     "scripts": {
         "prepare": "npm run build",
         "build": "rollup -c",
-        "build:watch": "tsc --watch",
+        "build:watch": "rollup -c --watch",
         "clean": "rm -rf dist",
-        "test:invoice": "npx tsx test/test-invoice.ts",
-        "test:makeup": "npx tsx test/test-makeup.ts",
-        "test:reader": "npx tsx test/test-reader.ts",
-        "test:token": "npx tsx test/test-api_key.ts",
-        "prepublishOnly": "npm run clean && npm run build",
-        "types:sandbox": "npx tsx ./swagger.ts sandbox",
-        "types": "npx tsx ./swagger.ts",
-        "release": "changeset publish"
+        "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "prepublishOnly": "npm run clean && npm run build && npm test"
     },
     "keywords": [
-        "auth",
-        "authentication",
-        "jwt",
-        "oauth",
-        "typescript",
+        "verifactu",
+        "veri*factu",
+        "aeat",
+        "factura",
+        "invoice",
+        "oruga",
+        "invo",
         "sdk",
+        "typescript",
         "calltek"
     ],
     "author": "Calltek",
@@ -56,18 +56,20 @@
         "@types/node": "^24.10.1",
         "@typescript-eslint/eslint-plugin": "^8.46.4",
         "@typescript-eslint/parser": "^8.46.4",
-        "dotenv": "^17.2.3",
         "eslint": "^9.39.1",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-prettier": "^5.5.4",
         "prettier": "^3.6.2",
         "rollup": "^4.53.3",
         "rollup-plugin-dts": "^6.2.3",
-        "swagger-typescript-api": "^13.2.16",
         "tslib": "^2.8.1",
-        "typescript": "^5.9.3"
+        "typescript": "^5.9.3",
+        "vitest": "^3.2.7"
     },
     "engines": {
         "node": ">=18.0.0"
+    },
+    "publishConfig": {
+        "access": "public"
     }
 }

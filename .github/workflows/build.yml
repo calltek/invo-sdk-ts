@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [ 18.x, 20.x ]
+        node-version: [ 18.x, 20.x, 22.x ]
 
     steps:
     - uses: actions/checkout@v4
@@ -31,4 +31,12 @@ jobs:
 
     - name: Verify build output
       run: |
-        test -d dist && echo "Build successful" || (echo "Build failed: dist directory not found" && exit 1)
+        test -f dist/index.js && test -f dist/index.d.ts && echo "Build successful" || (echo "Build failed: dist/index.js or dist/index.d.ts not found" && exit 1)
+
+    - name: Typecheck
+      run: npm run typecheck
+
+    # vitest 3 / vite 7 need Node >= 20.19: on 18.x only the build is checked
+    - name: Test
+      if: matrix.node-version != '18.x'
+      run: npm test
