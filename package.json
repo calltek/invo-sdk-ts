@@ -23,7 +23,7 @@
         "prepare": "npm run build",
         "build": "rollup -c",
         "build:watch": "rollup -c --watch",
-        "clean": "rm -rf dist",
+        "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
         "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
         "test": "vitest run",
         "test:watch": "vitest",
