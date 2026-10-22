@@ -1,15 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-    AuthError,
-    InvalidCredentialsError,
-    InvoApiError,
-    InvoAuthError,
-    InvoConfigError,
-    InvoNetworkError,
-    InvoRateLimitError,
-    InvoSDK,
-    InvoTimeoutError,
-    NetworkError,
+    OrugaApiError,
+    OrugaAuthError,
+    OrugaConfigError,
+    OrugaError,
+    OrugaNetworkError,
+    OrugaRateLimitError,
+    OrugaSDK,
+    OrugaTimeoutError,
     parseRetryAfter,
 } from '../src'
 import { API_KEY, invoiceResponse, json, makeSdk, mockFetch } from './helpers'
@@ -26,36 +24,30 @@ const createBody = {
 
 describe('configuration', () => {
     it('requires an API key', () => {
-        expect(() => new InvoSDK({})).toThrow(InvoConfigError)
-    })
-
-    it('rejects INVO tokens with an explanation', () => {
-        expect(() => new InvoSDK({ apiToken: 'invo_tok_prod_abc' })).toThrow(/ORUGA/)
-        expect(() => new InvoSDK({ apiToken: 'invo_tok_sand_abc' })).toThrow(InvoConfigError)
+        expect(() => new OrugaSDK({} as never)).toThrow(OrugaConfigError)
+        expect(() => new OrugaSDK({ apiKey: '  ' })).toThrow(OrugaConfigError)
+        expect(() => new OrugaSDK(undefined as never)).toThrow(OrugaConfigError)
     })
 
     it('rejects keys that are not ORUGA API keys', () => {
-        expect(() => new InvoSDK({ apiKey: 'sk_live_123' })).toThrow(/ogk_/)
-    })
-
-    it('accepts apiToken as an alias of apiKey', async () => {
-        const { fetch, calls } = mockFetch(() => json({ data: [], total_items: 0 }))
-        const sdk = new InvoSDK({ apiToken: API_KEY, fetch })
-        await sdk.verifactu.invoices.list()
-        expect(calls[0].headers.authorization).toBe(`Bearer ${API_KEY}`)
+        expect(() => new OrugaSDK({ apiKey: 'sk_live_123' })).toThrow(/ogk_/)
+        expect(() => new OrugaSDK({ apiKey: 'invo_tok_prod_abc' })).toThrow(OrugaConfigError)
     })
 
     it('defaults to the ORUGA production URL and strips trailing slashes', () => {
-        expect(new InvoSDK({ apiKey: API_KEY }).apiUrl).toBe('https://api.oru.ga/v1')
-        expect(new InvoSDK({ apiKey: API_KEY, baseUrl: 'http://localhost:5150/v1/' }).apiUrl).toBe(
-            'http://localhost:5150/v1',
-        )
+        expect(new OrugaSDK({ apiKey: API_KEY }).baseUrl).toBe('https://api.oru.ga/v1')
+        expect(
+            new OrugaSDK({ apiKey: API_KEY, baseUrl: 'http://localhost:5150/v1/' }).baseUrl,
+        ).toBe('http://localhost:5150/v1')
     })
 
-    it('rejects an unknown environment', () => {
-        expect(() => new InvoSDK({ apiKey: API_KEY, environment: 'staging' as never })).toThrow(
-            InvoConfigError,
-        )
+    it('request() is a generic escape hatch with the same auth', async () => {
+        const { fetch, calls } = mockFetch(() => json({ ok: true }))
+        const result = await makeSdk(fetch).request<{ ok: boolean }>('verifactu/taxpayers', 'GET')
+        expect(result).toEqual({ ok: true })
+        expect(calls[0].url).toBe('https://api.test/v1/verifactu/taxpayers')
+        expect(calls[0].headers.authorization).toBe(`Bearer ${API_KEY}`)
+        expect(calls[0].headers['user-agent']).toMatch(/^oruga-sdk-ts\//)
     })
 })
 
@@ -70,7 +62,7 @@ describe('requests', () => {
         expect(calls[0].method).toBe('GET')
         expect(calls[0].headers.authorization).toBe(`Bearer ${API_KEY}`)
         expect(calls[0].headers['x-workspace-id']).toBeUndefined()
-        expect(calls[0].headers['user-agent']).toMatch(/^invo-sdk-ts\//)
+        expect(calls[0].headers['user-agent']).toMatch(/^oruga-sdk-ts\//)
     })
 
     it('serialises list queries, skipping undefined values', async () => {
@@ -170,7 +162,7 @@ describe('retries', () => {
         const error = await makeSdk(fetch, { maxRetries: 2 })
             .verifactu.invoices.get(1)
             .catch((e) => e)
-        expect(error).toBeInstanceOf(InvoApiError)
+        expect(error).toBeInstanceOf(OrugaApiError)
         expect(error.status).toBe(503)
         expect(calls).toHaveLength(3)
     })
@@ -190,7 +182,7 @@ describe('retries', () => {
         const { fetch, calls } = mockFetch(() =>
             json({ status: 503, code: 'X', message: 'Down' }, 503),
         )
-        await expect(makeSdk(fetch).verifactu.records.resend(5)).rejects.toBeInstanceOf(InvoApiError)
+        await expect(makeSdk(fetch).verifactu.records.resend(5)).rejects.toBeInstanceOf(OrugaApiError)
         expect(calls).toHaveLength(1)
     })
 
@@ -214,7 +206,7 @@ describe('retries', () => {
         const error = await makeSdk(fetch, { maxRetryDelay: 1000 })
             .verifactu.invoices.list()
             .catch((e) => e)
-        expect(error).toBeInstanceOf(InvoRateLimitError)
+        expect(error).toBeInstanceOf(OrugaRateLimitError)
         expect(error.retryAfter).toBe(120)
         expect(calls).toHaveLength(1)
     })
@@ -241,8 +233,8 @@ describe('timeout', () => {
         const error = await makeSdk(fetchImpl, { timeout: 20, maxRetries: 0 })
             .verifactu.invoices.get(1)
             .catch((e) => e)
-        expect(error).toBeInstanceOf(InvoTimeoutError)
-        expect(error).toBeInstanceOf(InvoNetworkError)
+        expect(error).toBeInstanceOf(OrugaTimeoutError)
+        expect(error).toBeInstanceOf(OrugaNetworkError)
         expect(error.timeoutMs).toBe(20)
     })
 
@@ -272,8 +264,8 @@ describe('timeout', () => {
         const error = await makeSdk(fetch)
             .verifactu.invoices.get(1, { signal: controller.signal })
             .catch((e) => e)
-        expect(error).toBeInstanceOf(InvoNetworkError)
-        expect(error).not.toBeInstanceOf(InvoTimeoutError)
+        expect(error).toBeInstanceOf(OrugaNetworkError)
+        expect(error).not.toBeInstanceOf(OrugaTimeoutError)
         expect(calls).toHaveLength(1)
     })
 })
@@ -295,17 +287,17 @@ describe('error mapping', () => {
         const error = await makeSdk(fetch)
             .verifactu.invoices.create(createBody)
             .catch((e) => e)
-        expect(error).toBeInstanceOf(InvoApiError)
-        expect(error).toBeInstanceOf(AuthError) // v0 instanceof checks keep working
+        expect(error).toBeInstanceOf(OrugaApiError)
+        expect(error).toBeInstanceOf(OrugaError)
+        expect(error.name).toBe('OrugaApiError')
         expect(error.status).toBe(400)
-        expect(error.statusCode).toBe(400)
         expect(error.code).toBe('VALIDATION_FAILED')
         expect(error.requestId).toBe('req-123')
         expect(error.message).toContain('total must be a decimal number')
         expect(error.toJSON()).toMatchObject({ status: 400, code: 'VALIDATION_FAILED' })
     })
 
-    it('maps 401/403 to InvoAuthError (and the v0 InvalidCredentialsError)', async () => {
+    it('maps 401/403 to OrugaAuthError', async () => {
         const { fetch } = mockFetch(
             () => json({ status: 401, code: 'UNAUTHORIZED', message: 'Unauthorized' }, 401),
             () => json({ status: 403, code: 'FORBIDDEN', message: 'Missing scope' }, 403),
@@ -317,9 +309,9 @@ describe('error mapping', () => {
             legal_name: 'X',
             environment: 'test',
         }).catch((e) => e)
-        expect(e401).toBeInstanceOf(InvoAuthError)
-        expect(e401).toBeInstanceOf(InvalidCredentialsError)
-        expect(e403).toBeInstanceOf(InvoAuthError)
+        expect(e401).toBeInstanceOf(OrugaAuthError)
+        expect(e401.status).toBe(401)
+        expect(e403).toBeInstanceOf(OrugaAuthError)
         expect(e403.status).toBe(403)
     })
 
@@ -333,7 +325,7 @@ describe('error mapping', () => {
         expect(error).toMatchObject({ status: 502, code: 'HTTP_502', message: 'Bad Gateway' })
     })
 
-    it('maps network failures to InvoNetworkError (v0 NetworkError) and calls onError', async () => {
+    it('maps network failures to OrugaNetworkError and calls onError', async () => {
         const onError = vi.fn()
         const { fetch } = mockFetch(() => {
             throw new TypeError('fetch failed')
@@ -341,8 +333,8 @@ describe('error mapping', () => {
         const error = await makeSdk(fetch, { maxRetries: 0, onError })
             .verifactu.invoices.list()
             .catch((e) => e)
-        expect(error).toBeInstanceOf(InvoNetworkError)
-        expect(error).toBeInstanceOf(NetworkError)
+        expect(error).toBeInstanceOf(OrugaNetworkError)
+        expect(error).toBeInstanceOf(OrugaError)
         expect(error.message).toBe('fetch failed')
         expect(onError).toHaveBeenCalledWith(error)
     })

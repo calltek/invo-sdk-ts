@@ -1,4 +1,4 @@
-name: Build
+name: Build @calltek/oruga-sdk
 
 on:
   push:

@@ -6,14 +6,14 @@
 
 import { randomUUID } from 'node:crypto'
 import {
-    InvoApiError,
-    type InvoApiErrorInit,
-    InvoAuthError,
-    InvoNetworkError,
-    InvoRateLimitError,
-    InvoTimeoutError,
+    OrugaApiError,
+    type OrugaApiErrorInit,
+    OrugaAuthError,
+    OrugaNetworkError,
+    OrugaRateLimitError,
+    OrugaTimeoutError,
 } from './errors'
-import type { InvoDebugLogger, RequestOptions } from './types/sdk.types'
+import type { OrugaDebugLogger, RequestOptions } from './types/sdk.types'
 import { SDK_VERSION } from './version'
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -50,7 +50,7 @@ export interface HttpClientConfig {
     retryBaseDelay: number
     maxRetryDelay: number
     fetch?: typeof fetch
-    debug?: InvoDebugLogger
+    debug?: OrugaDebugLogger
     onError?: (error: Error) => void
 }
 
@@ -107,7 +107,7 @@ export class HttpClient {
         const url = `${this.config.baseUrl}${req.path}${buildQuery(req.query)}`
         const headers: Record<string, string> = {
             Accept: 'application/json',
-            'User-Agent': `invo-sdk-ts/${SDK_VERSION}`,
+            'User-Agent': `oruga-sdk-ts/${SDK_VERSION}`,
             ...req.headers,
             Authorization: `Bearer ${this.config.apiKey}`,
         }
@@ -152,9 +152,9 @@ export class HttpClient {
                 })
             } catch (error) {
                 const networkError =
-                    error instanceof InvoNetworkError
+                    error instanceof OrugaNetworkError
                         ? error
-                        : new InvoNetworkError(
+                        : new OrugaNetworkError(
                               error instanceof Error ? error.message : 'Network request failed',
                               error,
                           )
@@ -224,7 +224,9 @@ export class HttpClient {
     ): Promise<Response> {
         const fetchImpl = this.config.fetch ?? globalThis.fetch
         if (typeof fetchImpl !== 'function') {
-            throw new InvoNetworkError('fetch is not available: use Node >= 18 or pass config.fetch')
+            throw new OrugaNetworkError(
+                'fetch is not available: use Node >= 18 or pass config.fetch',
+            )
         }
 
         const controller = new AbortController()
@@ -250,8 +252,8 @@ export class HttpClient {
                 signal: controller.signal,
             })
         } catch (error) {
-            if (timedOut) throw new InvoTimeoutError(init.timeout, error)
-            if (init.signal?.aborted) throw new InvoNetworkError('Request aborted', error)
+            if (timedOut) throw new OrugaTimeoutError(init.timeout, error)
+            if (init.signal?.aborted) throw new OrugaNetworkError('Request aborted', error)
             throw error
         } finally {
             if (timer) clearTimeout(timer)
@@ -274,7 +276,7 @@ export class HttpClient {
         }
     }
 
-    private async toApiError(response: Response, requestId: string | null): Promise<InvoApiError> {
+    private async toApiError(response: Response, requestId: string | null): Promise<OrugaApiError> {
         const text = await response.text().catch(() => '')
         let parsed: Record<string, unknown> | null = null
         try {
@@ -293,7 +295,7 @@ export class HttpClient {
             message += ` - ${errors.map((e) => (typeof e === 'string' ? e : JSON.stringify(e))).join('; ')}`
         }
 
-        const init: InvoApiErrorInit = {
+        const init: OrugaApiErrorInit = {
             status: response.status,
             code:
                 typeof parsed?.code === 'string' && parsed.code
@@ -310,12 +312,12 @@ export class HttpClient {
             body: parsed ?? (text || undefined),
         }
 
-        if (response.status === 401 || response.status === 403) return new InvoAuthError(init)
-        if (response.status === 429) return new InvoRateLimitError(init)
-        return new InvoApiError(init)
+        if (response.status === 401 || response.status === 403) return new OrugaAuthError(init)
+        if (response.status === 429) return new OrugaRateLimitError(init)
+        return new OrugaApiError(init)
     }
 
     private log(message: string, meta?: Record<string, unknown>) {
-        this.config.debug?.(`[invo-sdk] ${message}`, meta)
+        this.config.debug?.(`[oruga-sdk] ${message}`, meta)
     }
 }

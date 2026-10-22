@@ -1,8 +1,8 @@
 {
-    "name": "@calltek/invo-sdk",
+    "name": "@calltek/oruga-sdk",
     "version": "1.0.0",
     "type": "module",
-    "description": "TypeScript SDK for the ORUGA VERI*FACTU API (formerly INVO)",
+    "description": "Official TypeScript SDK for the ORUGA API (VERI*FACTU: invoices, records, taxpayers, webhooks)",
     "main": "./dist/index.js",
     "module": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -30,13 +30,12 @@
         "prepublishOnly": "npm run clean && npm run build && npm test"
     },
     "keywords": [
+        "oruga",
         "verifactu",
         "veri*factu",
         "aeat",
         "factura",
         "invoice",
-        "oruga",
-        "invo",
         "sdk",
         "typescript",
         "calltek"
@@ -45,12 +44,12 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/calltek/invo-sdk-ts.git"
+        "url": "https://github.com/calltek/oruga-sdk-ts.git"
     },
     "bugs": {
-        "url": "https://github.com/calltek/invo-sdk-ts/issues"
+        "url": "https://github.com/calltek/oruga-sdk-ts/issues"
     },
-    "homepage": "https://github.com/calltek/invo-sdk-ts#readme",
+    "homepage": "https://github.com/calltek/oruga-sdk-ts#readme",
     "devDependencies": {
         "@rollup/plugin-typescript": "^12.3.0",
         "@types/node": "^24.10.1",

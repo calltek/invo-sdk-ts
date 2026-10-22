@@ -1,4 +1,4 @@
-name: Publish
+name: Publish @calltek/oruga-sdk
 
 on:
   push:
@@ -42,7 +42,7 @@ jobs:
     - name: Test
       run: npm test
 
-    - name: Publish
+    - name: Publish @calltek/oruga-sdk to npm
       run: |
         if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
           npm publish --provenance --access public --tag next

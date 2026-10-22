@@ -1,18 +1,18 @@
 /**
- * Verification of VERI*FACTU webhook signatures (same scheme as INVO):
+ * Verification of VERI*FACTU webhook signatures:
  *
- *   X-Invo-Timestamp: <unix seconds>
- *   X-Invo-Signature: sha256=<hex HMAC-SHA256(secret, `${timestamp}.${rawBody}`)>
+ *   X-Oruga-Timestamp: <unix seconds>
+ *   X-Oruga-Signature: sha256=<hex HMAC-SHA256(secret, `${timestamp}.${rawBody}`)>
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { VerifactuWebhookEvent } from './types/verifactu.types'
-import { InvoValidationError } from './errors'
+import { OrugaValidationError } from './errors'
 
 /** Headers of a webhook delivery (lower-case, as Node exposes them). */
 export const WEBHOOK_HEADERS = {
-    TIMESTAMP: 'x-invo-timestamp',
-    SIGNATURE: 'x-invo-signature',
+    TIMESTAMP: 'x-oruga-timestamp',
+    SIGNATURE: 'x-oruga-signature',
     /** Event name, e.g. `verifactu_record.status_changed`. */
     EVENT: 'x-oruga-event',
     /** Delivery id: use it to discard duplicates. */
@@ -22,9 +22,9 @@ export const WEBHOOK_HEADERS = {
 export interface VerifyWebhookSignatureParams {
     /** Webhook secret (`whsec_…`), shown once when the webhook is created or rotated. */
     secret: string
-    /** `X-Invo-Timestamp` header. */
+    /** `X-Oruga-Timestamp` header. */
     timestamp: string | number | null | undefined
-    /** `X-Invo-Signature` header (`sha256=<hex>`; the bare hex is accepted too). */
+    /** `X-Oruga-Signature` header (`sha256=<hex>`; the bare hex is accepted too). */
     signature: string | null | undefined
     /** The RAW request body, exactly as received (not re-serialised JSON). */
     body: string | Uint8Array
@@ -55,8 +55,8 @@ export function signWebhookPayload(
  * app.post('/webhooks/verifactu', express.raw({ type: 'application/json' }), (req, res) => {
  *   const ok = verifyWebhookSignature({
  *     secret: process.env.VERIFACTU_WEBHOOK_SECRET!,
- *     timestamp: req.header('X-Invo-Timestamp'),
- *     signature: req.header('X-Invo-Signature'),
+ *     timestamp: req.header('X-Oruga-Timestamp'),
+ *     signature: req.header('X-Oruga-Signature'),
  *     body: req.body, // Buffer with the raw body
  *   })
  *   if (!ok) return res.sendStatus(401)
@@ -84,12 +84,12 @@ export function verifyWebhookSignature(params: VerifyWebhookSignatureParams): bo
 }
 
 /**
- * Verifies the signature and parses the event. Throws `InvoValidationError`
+ * Verifies the signature and parses the event. Throws `OrugaValidationError`
  * if the signature is invalid or expired.
  */
 export function constructWebhookEvent(params: VerifyWebhookSignatureParams): VerifactuWebhookEvent {
     if (!verifyWebhookSignature(params)) {
-        throw new InvoValidationError('Invalid or expired webhook signature')
+        throw new OrugaValidationError('Invalid or expired webhook signature')
     }
     const text =
         typeof params.body === 'string' ? params.body : new TextDecoder().decode(params.body)

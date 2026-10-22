@@ -2,6 +2,5 @@
  * Type exports
  */
 
-export type { InvoSDKConfig, InvoDebugLogger, RequestOptions } from './sdk.types'
-export * from './legacy.types'
+export type { OrugaSDKConfig, OrugaDebugLogger, RequestOptions } from './sdk.types'
 export * from './verifactu.types'
