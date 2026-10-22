@@ -1,36 +1,35 @@
-# @calltek/invo-sdk
+# @calltek/oruga-sdk
 
-TypeScript SDK for the **ORUGA VERI\*FACTU API**: register invoices with the
-AEAT (VERI\*FACTU), follow their status, get the QR and verify webhooks.
+Official TypeScript SDK for the **ORUGA API**. Today it covers VERI\*FACTU:
+register invoices with the AEAT, follow their status, get the QR, manage
+taxpayers and verify webhooks.
 
-> **v1 talks to ORUGA** (`https://api.oru.ga/v1`), which replaces the INVO API.
-> Code written for v0 keeps working (`new InvoSDK({ apiToken })` + `store()`):
-> you only need an ORUGA API key (`ogk_…`). See the
-> [migration guide](./CHANGELOG.md#migration-guide-v0--v1).
+> Replaces `@calltek/invo-sdk`. There is no INVO compatibility layer: see the
+> [migration notes](./CHANGELOG.md#migrating-from-calltekinvo-sdk-0x).
 
 - Zero runtime dependencies, Node ≥ 18 (native `fetch`, `node:crypto`).
-- Typed 1:1 with the API (`sdk.verifactu.*`, snake_case).
+- Typed 1:1 with the API (`sdk.verifactu.*`, snake_case payloads).
 - Automatic `Idempotency-Key`, timeouts, retries with backoff on 429/5xx.
 - Webhook signature verification.
 
 ## Installation
 
 ```bash
-npm install @calltek/invo-sdk
+npm install @calltek/oruga-sdk
 ```
 
 ## Quick start
 
 ```typescript
-import { InvoSDK } from '@calltek/invo-sdk'
+import { OrugaSDK } from '@calltek/oruga-sdk'
 
-const sdk = new InvoSDK({
+const sdk = new OrugaSDK({
     apiKey: process.env.ORUGA_API_KEY!, // ogk_…
     // baseUrl: 'https://api.oru.ga/v1', // default
 })
 
 const invoice = await sdk.verifactu.invoices.create({
-    issuer_nif: 'B12345678', // a taxpayer of your workspace
+    issuer_nif: 'B12345678', // a taxpayer of your workspace (or taxpayer_id)
     invoice_number: 'FAC-2026-001',
     issue_date: '2026-10-21',
     description: 'Servicios de consultoría',
@@ -62,82 +61,6 @@ batches and the status moves to `accepted`, `accepted_with_warnings`,
 - The issuer registered as a **taxpayer** (`nif`, `legal_name` exactly as in
   the AEAT census, `environment` `test` = AEAT pre-production or
   `production`) with a verified representation model.
-
-## v0 compatibility: `store()`
-
-v0 code keeps working. `store()` keeps its camelCase DTO, its optional
-`callback` and its result, and maps everything to `POST /verifactu/invoices`:
-
-```typescript
-const sdk = new InvoSDK({
-    apiToken: process.env.INVO_API_TOKEN!, // now an ORUGA key: ogk_…
-    environment: 'sandbox', // optional: picks the taxpayer's environment (sandbox → test)
-})
-
-const result = await sdk.store(
-    {
-        issueDate: new Date().toISOString(),
-        invoiceNumber: 'FAC-2026-001',
-        externalId: 'order-12345',
-        totalAmount: 1210,
-        customerName: 'Cliente SL',
-        customerTaxId: 'B87654321',
-        emitterTaxId: 'B12345678',
-        taxLines: [{ taxRate: 21, baseAmount: 1000, taxAmount: 210 }],
-    },
-    'https://myapp.com/webhooks/verifactu',
-)
-
-// { success: true, invoiceId: '42', chainIndex: 9, invoice: { …full v1 invoice } }
-```
-
-| v0 (`CreateInvoiceDto`) | v1 body |
-| --- | --- |
-| `issueDate` | `issue_date` (a zone-less date-time keeps its date part) |
-| `invoiceNumber` | `invoice_number` |
-| `externalId` | `external_id` |
-| `totalAmount` | `total` (decimal string; float noise rounded to cents) |
-| `currency` | — (must be `EUR` or omitted) |
-| `customerName` + `customerTaxId` | `recipients[0]`: `{ name, nif }`, or `{ name, id_type: '02', id }` for an EU VAT number |
-| `emitterName` | — ignored: the AEAT name is the taxpayer's `legal_name` |
-| `emitterTaxId` | `issuer_nif` |
-| config `environment` | `environment` (`sandbox` → `test`), only when configured |
-| `type` | `invoice_type` |
-| `rectificationType` | `rectification_type` |
-| `description` | `description` |
-| `simplifiedQualified` | `simplified_art_7273` |
-| `unidentifiedRecipient` | `unidentified_recipient_art_61d` |
-| `billingAgreementNumber` | `billing_agreement_number` |
-| `rectifiedInvoiceIds[]` | `rectified_invoices[].invoice_id` (ORUGA ids, not INVO UUIDs) |
-| `substitutedInvoiceIds[]` | `substituted_invoices[].invoice_id` |
-| `callback` / 2nd argument | `callback_url` |
-| `taxLines[].taxType` | `tax_type` (`04` → `05`, the AEAT code for "Others") |
-| `taxLines[].taxRate` | `tax_rate` |
-| `taxLines[].baseAmount` | `base` |
-| `taxLines[].taxAmount` | `tax_amount` |
-| `taxLines[].surchargeRate` / `surchargeAmount` | `surcharge_rate` / `surcharge_amount` |
-| `taxLines[].taxExemptionReason` / `operationType` | `operation` (mutually exclusive) |
-| `taxLines[].regimeKey` | `regime_key` |
-
-Optional v1 extras on the same DTO: `taxpayerId` (→ `taxpayer_id`),
-`operationDate`, and `rectifiedAmounts`. For a rectification by substitution
-(`R1`–`R5` + `rectificationType: 'S'`) the SDK computes ImporteRectificacion from
-the rectified invoices, as INVO did, unless you pass `rectifiedAmounts`.
-
-Pass a third argument for v1 request options, e.g. a stable idempotency key:
-``sdk.store(dto, callback, { idempotencyKey: `order-${orderId}` })``.
-
-### Removed in v1
-
-| v0 | v1 |
-| --- | --- |
-| `read(file)` (AI reader) | Not available: throws `InvoNotAvailableError` |
-| `pdf(data)` (branded PDF) | Not available: throws `InvoNotAvailableError`. Print the QR from `verifactu.invoices.qr(id)` on your own PDF |
-| `getAccessToken()` | Deprecated, always `null` (no JWT; the key is never exposed) |
-| `getUser()` | Deprecated, always `null` |
-| `isAuthenticated()` | Deprecated, `true` when a key is configured |
-| `invo_tok_…` tokens | Rejected with `InvoConfigError`: use an ORUGA API key |
-| `request('/invoice/store', …)` | `request()` is relative to the ORUGA base URL (e.g. `/verifactu/taxpayers`) |
 
 ## API reference (`sdk.verifactu`)
 
@@ -175,6 +98,10 @@ Lists answer `{ data, total_items }` and accept `page`, `limit` (≤ 100), `sort
 Amounts are decimal strings in responses (`"121.00"`); on input both strings
 and numbers are accepted (prefer strings).
 
+For an endpoint the SDK does not wrap yet, `sdk.request(path, method?, body?, options?)`
+calls it with the same auth, timeout, retries and error mapping
+(`path` is relative to `baseUrl`, e.g. `/verifactu/taxpayers`).
+
 ## Webhooks
 
 Configure a workspace webhook once (or send `callback_url` per invoice):
@@ -185,49 +112,77 @@ const { secret } = await sdk.verifactu.webhook.update({ url: 'https://myapp.com/
 ```
 
 Each verdict (`accepted`, `accepted_with_warnings`, `rejected`, `failed`) is
-POSTed with the same headers as INVO:
+POSTed with these headers (also exported as `WEBHOOK_HEADERS`, lower-case):
 
 ```
-X-Invo-Timestamp: <unix seconds>
-X-Invo-Signature: sha256=<hex HMAC-SHA256(secret, "<timestamp>.<raw body>")>
+X-Oruga-Timestamp: <unix seconds>
+X-Oruga-Signature: sha256=<hex HMAC-SHA256(secret, "<timestamp>.<raw body>")>
 X-Oruga-Event: verifactu_record.status_changed
 X-Oruga-Delivery: <delivery id>
+```
+
+and this body (`VerifactuWebhookEvent`):
+
+```json
+{
+    "event": "verifactu_record.status_changed",
+    "occurred_at": "2026-10-21T10:00:00.000Z",
+    "invoice_id": "order-12345",
+    "data": {
+        "verifactu_invoice_id": 42,
+        "external_id": "order-12345",
+        "taxpayer_id": 1,
+        "invoice_number": "FAC-2026-001",
+        "issue_date": "2026-10-21",
+        "record_id": 7,
+        "record_type": "alta",
+        "chain_index": 9,
+        "status": "accepted",
+        "aeat_status": "correcto",
+        "aeat_csv": "A-XXXXXXXXXXXXXX",
+        "aeat_error_code": null,
+        "aeat_error_description": null
+    },
+    "delivery_id": 3
+}
 ```
 
 Verify it against the **raw** body:
 
 ```typescript
 import express from 'express'
-import { verifyWebhookSignature, type VerifactuWebhookEvent } from '@calltek/invo-sdk'
+import { constructWebhookEvent, OrugaValidationError, WEBHOOK_HEADERS } from '@calltek/oruga-sdk'
 
 app.post('/webhooks/verifactu', express.raw({ type: 'application/json' }), (req, res) => {
-    const valid = verifyWebhookSignature({
-        secret: process.env.VERIFACTU_WEBHOOK_SECRET!,
-        timestamp: req.header('X-Invo-Timestamp'),
-        signature: req.header('X-Invo-Signature'),
-        body: req.body, // Buffer
-        // toleranceSeconds: 300 (default)
-    })
-    if (!valid) return res.sendStatus(401)
-
-    const event = JSON.parse(req.body.toString('utf8')) as VerifactuWebhookEvent
-    // event.invoice_id = your external_id; event.invo_status = 1 registered / 0 not / AEAT error code
-    // event.data.status, event.data.aeat_csv, event.data.aeat_error_code…
-    res.sendStatus(200)
+    try {
+        const event = constructWebhookEvent({
+            secret: process.env.VERIFACTU_WEBHOOK_SECRET!,
+            timestamp: req.header(WEBHOOK_HEADERS.TIMESTAMP),
+            signature: req.header(WEBHOOK_HEADERS.SIGNATURE),
+            body: req.body, // Buffer with the raw body
+            // toleranceSeconds: 300 (default)
+        })
+        // event.invoice_id = your external_id
+        // event.data.status, event.data.aeat_csv, event.data.aeat_error_code…
+        res.sendStatus(200)
+    } catch (error) {
+        if (error instanceof OrugaValidationError) return res.sendStatus(401)
+        throw error
+    }
 })
 ```
 
-`constructWebhookEvent(params)` does both steps and throws `InvoValidationError`
-if the signature is invalid. Deliveries are retried with backoff for hours:
+`verifyWebhookSignature(params)` only checks the signature (returns a boolean,
+never throws); `signWebhookPayload(secret, timestamp, body)` computes the header
+value (handy in your tests). Deliveries are retried with backoff for hours:
 deduplicate by `delivery_id`.
 
 ## Configuration
 
 ```typescript
-new InvoSDK({
-    apiKey: 'ogk_…', // or apiToken (v0 alias)
+new OrugaSDK({
+    apiKey: 'ogk_…', // required
     baseUrl: 'https://api.oru.ga/v1', // default
-    environment: 'production', // only for store() taxpayer resolution: 'production' | 'sandbox' | 'test'
     timeout: 30_000, // ms per attempt
     maxRetries: 3, // 429 / 5xx / network, idempotent requests only
     retryBaseDelay: 500, // ms, exponential backoff with jitter
@@ -240,11 +195,12 @@ new InvoSDK({
 
 ### Retries and idempotency
 
-- `invoices.create`, `bulk`, `correct`, `annul` and `store()` always send an
+- `invoices.create`, `bulk`, `correct` and `annul` always send an
   `Idempotency-Key` (a random UUID unless you pass `idempotencyKey`). Retries reuse
   it, so a retried write never duplicates an invoice. Same key + same body within
   24 h returns the stored response; same key + different body is a 422
-  `IDEMPOTENCY_KEY_REUSED`.
+  `IDEMPOTENCY_KEY_REUSED`. Pass a key derived from your own id
+  (``{ idempotencyKey: `order-${orderId}` }``) to make retries safe across processes.
 - Retries happen on 429 (honouring `Retry-After`), 5xx and network errors/timeouts,
   only for GET/PUT/DELETE, searches and writes with an Idempotency-Key.
 - Rate limit: 300 requests/min per API key by default (`X-RateLimit-*` headers).
@@ -252,34 +208,33 @@ new InvoSDK({
 ## Errors
 
 ```typescript
-import { InvoApiError } from '@calltek/invo-sdk'
+import { OrugaApiError, OrugaNetworkError } from '@calltek/oruga-sdk'
 
 try {
     await sdk.verifactu.invoices.create(body)
 } catch (error) {
-    if (error instanceof InvoApiError) {
+    if (error instanceof OrugaApiError) {
         error.status // 400
         error.code // 'VERIFACTU_INVOICE_INVALID'
         error.message // details from the API
+        error.errors // validation errors, when sent
         error.requestId // X-Correlation-Id, for support
         error.retryAfter // seconds (429)
+    } else if (error instanceof OrugaNetworkError) {
+        // no response (or OrugaTimeoutError): safe to retry with the same idempotencyKey
     }
 }
 ```
 
 | Class | When |
 | --- | --- |
-| `InvoApiError` | The API answered with an error (`{ status, code, message }`) |
-| `InvoAuthError` | 401 (invalid/revoked key) or 403 (missing scope) |
-| `InvoRateLimitError` | 429 `RATE_LIMITED` / `VERIFACTU_BULK_IN_PROGRESS` |
-| `InvoNetworkError` / `InvoTimeoutError` | No response / timeout |
-| `InvoConfigError` | Bad configuration (missing key, INVO token) |
-| `InvoValidationError` | `store()` input that cannot be mapped |
-| `InvoNotAvailableError` | `read()` / `pdf()` |
-
-All API and network errors extend the v0 `AuthError` (with `statusCode`), and
-`NetworkError` / `InvalidCredentialsError` are aliases of the new classes, so v0
-`instanceof` checks keep working.
+| `OrugaError` | Base class of everything the SDK throws |
+| `OrugaApiError` | The API answered with an error (`{ status, code, message }`) |
+| `OrugaAuthError` | 401 (invalid/revoked key) or 403 (missing scope) |
+| `OrugaRateLimitError` | 429 `RATE_LIMITED` / `VERIFACTU_BULK_IN_PROGRESS` |
+| `OrugaNetworkError` / `OrugaTimeoutError` | No response / timeout |
+| `OrugaConfigError` | Bad configuration (missing key, key not starting with `ogk_`) |
+| `OrugaValidationError` | Invalid or expired webhook signature (`constructWebhookEvent`) |
 
 ## Development
 

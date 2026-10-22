@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
-import { InvoSDK } from '../src'
-import type { InvoSDKConfig } from '../src'
+import { OrugaSDK } from '../src'
+import type { OrugaSDKConfig } from '../src'
 
 export const API_KEY = 'ogk_test_0123456789abcdef'
 
@@ -51,8 +51,8 @@ export function mockFetch(...responders: Responder[]) {
     return { fetch: fn as unknown as typeof fetch, calls }
 }
 
-export function makeSdk(fetchImpl: typeof fetch, config: Partial<InvoSDKConfig> = {}) {
-    return new InvoSDK({
+export function makeSdk(fetchImpl: typeof fetch, config: Partial<OrugaSDKConfig> = {}) {
+    return new OrugaSDK({
         apiKey: API_KEY,
         baseUrl: 'https://api.test/v1',
         retryBaseDelay: 1,

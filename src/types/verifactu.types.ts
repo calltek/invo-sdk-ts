@@ -646,16 +646,14 @@ export interface VerifactuWebhookDelivery {
 
 /**
  * Body POSTed to your webhook when a record reaches a verdict (`accepted`,
- * `accepted_with_warnings`, `rejected`, `failed`). `invoice_id` and
- * `invo_status` keep the INVO meaning, so existing receivers keep working.
+ * `accepted_with_warnings`, `rejected`, `failed`). The verdict is
+ * `data.status`; the AEAT error code, if any, `data.aeat_error_code`.
  */
 export interface VerifactuWebhookEvent {
     event: 'verifactu_record.status_changed'
     occurred_at: IsoDateTime
     /** Your `external_id`, or the ORUGA invoice id when there is none. */
     invoice_id: string
-    /** INVO status code: the numeric AEAT error code if any, 1 registered, 0 not. */
-    invo_status: number
     data: {
         verifactu_invoice_id: number
         external_id: string | null

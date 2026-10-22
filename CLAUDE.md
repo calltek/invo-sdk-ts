@@ -1,4 +1,4 @@
-# INVO — SDK TypeScript (`invo-sdk-ts`)
+# ORUGA — SDK TypeScript (`oruga-sdk-ts`)
 
 > **⚙️ Flujo de trabajo — léelo antes de tocar nada.**
 > **Ramas + Pull Request, nunca commit directo a `main`.** Este repo no tiene
@@ -6,11 +6,15 @@
 > typecheck y tests en cada push/PR a `main`; `publish.yml` publica a npm al
 > empujar un tag `v*` (secreto `NPM_TOKEN`). Nadie publica a mano.
 
-Paquete npm público (`@calltek/invo-sdk`) para que **ERPs de terceros**
-(copyexpress, vcs…) registren facturas VERI\*FACTU. **Desde la v1 habla con la
-API de ORUGA** (`https://api.oru.ga/v1/verifactu/*`, backend `og-backend`), no
-con INVO: el motor VERI\*FACTU de INVO se portó a ORUGA y INVO se retira (ver
-`og-backend/docs/architecture/verifactu.md`).
+Paquete npm público **`@calltek/oruga-sdk`** (repo `calltek/oruga-sdk-ts`,
+antes `invo-sdk-ts`) para que **ERPs de terceros** (copyexpress, vcs…) usen la
+API de ORUGA (`https://api.oru.ga/v1`, backend `og-backend`). Hoy cubre
+VERI\*FACTU (`/v1/verifactu/*`; ver `og-backend/docs/architecture/verifactu.md`).
+
+Sustituye a `@calltek/invo-sdk` y **no tiene capa de compatibilidad con INVO**:
+nada de `InvoSDK`, `store()`, DTOs camelCase, `apiToken`, `environment`,
+`read()`/`pdf()` ni helpers JWT. La guía de migración desde invo-sdk 0.x
+(con la tabla de campos `store()` → `invoices.create()`) está en el CHANGELOG.
 
 ---
 
@@ -32,18 +36,15 @@ con INVO: el motor VERI\*FACTU de INVO se portó a ORUGA y INVO se retira (ver
 ```
 src/
 ├── index.ts        ← superficie pública (export curado)
-├── sdk.ts          ← InvoSDK: config, store() (compat v0), request(), métodos v0 deprecados
-├── compat.ts       ← mapeo CreateInvoiceDto (camelCase, v0) → body v1 (snake_case). La tabla está en el comentario de cabecera
+├── sdk.ts          ← OrugaSDK: config (apiKey ogk_ obligatoria), sdk.verifactu, request() genérico
 ├── verifactu.ts    ← sdk.verifactu.{invoices,records,taxpayers(+representations),errors,webhook}, 1:1 con los controladores
 ├── http.ts         ← cliente HTTP: Bearer ogk_, timeout, Idempotency-Key automática, reintentos, errores tipados
-├── webhook.ts      ← verifyWebhookSignature / constructWebhookEvent (X-Invo-Timestamp / X-Invo-Signature)
-├── errors.ts       ← InvoError → AuthError (v0) → InvoApiError/InvoAuthError/InvoRateLimitError, InvoNetworkError/InvoTimeoutError
+├── webhook.ts      ← verifyWebhookSignature / constructWebhookEvent / signWebhookPayload / WEBHOOK_HEADERS (X-Oruga-*)
+├── errors.ts       ← OrugaError → OrugaConfigError/OrugaValidationError, OrugaApiError (→ Auth/RateLimit), OrugaNetworkError (→ Timeout)
 ├── version.ts      ← SDK_VERSION (= package.json, lo comprueba un test) y DEFAULT_BASE_URL
-├── utils.ts        ← helpers JWT de v0, deprecados (no se usan)
 └── types/
-    ├── verifactu.types.ts ← tipos de la API de ORUGA
-    ├── legacy.types.ts    ← CreateInvoiceDto/InvoiceTaxLineDto (entrada de store()) y tipos v0 deprecados
-    └── sdk.types.ts       ← InvoSDKConfig, RequestOptions
+    ├── verifactu.types.ts ← tipos de la API de ORUGA (snake_case)
+    └── sdk.types.ts       ← OrugaSDKConfig, RequestOptions
 ```
 
 ---
@@ -57,39 +58,26 @@ npm test            # vitest
 npm run typecheck   # src + tests
 ```
 
-`dist/` no está en git (está en `.gitignore`; antes se trackeaba un `dist/`
-viejo y se quitó en la v1).
+`dist/` no está en git (está en `.gitignore`).
 
 ---
 
-## 4. Decisiones tomadas (v1)
+## 4. Decisiones tomadas
 
-- **Compatibilidad hacia atrás**: `new InvoSDK({ apiToken, environment })` y
-  `store(dto, callback?)` siguen igual, con el mismo DTO camelCase y el mismo
-  resultado `{ success, invoiceId, chainIndex }` (+ `invoice` con la factura v1).
-  `apiToken` es alias de `apiKey`. Un `invo_tok_…` lanza `InvoConfigError`
-  explicando que hace falta una API key de ORUGA.
-- **`environment`** ya no cambia la URL (en ORUGA el entorno es del obligado):
-  solo se manda como `environment` (`sandbox` → `test`) para resolver el
-  obligado por `issuer_nif`, y solo si se configuró.
-- **`read()` y `pdf()`** se mantienen (para no romper la compilación) pero
-  lanzan `InvoNotAvailableError`: ni el lector con IA ni `makeup` se portaron a
-  ORUGA. `getAccessToken()`/`getUser()` devuelven `null` e `isAuthenticated()`
-  `true` si hay key: no hay sesión JWT.
-- **Tipo de impuesto `04` → `05`** (INVO usaba 04 para «Otros»; el código AEAT es 05).
-- **ImporteRectificacion**: INVO lo calculaba en servidor; ORUGA lo exige en el
-  cuerpo. `store()` lo calcula igual (suma del desglose del alta vigente de las
-  rectificadas, con un `GET` por cada una) salvo que venga `rectifiedAmounts`.
-- **Importes** a string decimal; el ruido de coma flotante se redondea a
-  céntimos, una precisión real de más de 2 decimales se manda tal cual y la
-  rechaza la API.
+- **API key** `ogk_…` obligatoria; si no empieza por `ogk_`, `OrugaConfigError`.
+  Sin canje por JWT ni cabecera de workspace (la key lo implica).
+- **Webhooks**: cabeceras `X-Oruga-Timestamp` / `X-Oruga-Signature`
+  (`sha256=` HMAC-SHA256 de `"<timestamp>.<cuerpo crudo>"`, tolerancia 300 s),
+  más `X-Oruga-Event` y `X-Oruga-Delivery`. El cuerpo no lleva `invo_status`:
+  el veredicto va en `data.status`. Tiene que coincidir con
+  `og-backend/src/modules/verifactu/webhook/webhook-signature.ts` (un test fija
+  los nombres de las cabeceras).
 - **Reintentos** solo en peticiones idempotentes (GET/PUT/DELETE, `search`,
   `errors.resolve` y escrituras con Idempotency-Key); 429 respeta `Retry-After`.
   `records.resend` y `taxpayers.create` no se reintentan.
-- **Errores**: todos los de API/red heredan de `AuthError` (v0) para que los
-  `instanceof` antiguos sigan valiendo; `NetworkError` e
-  `InvalidCredentialsError` son alias.
+- **`request()`** queda como vía de escape genérica, relativa a `baseUrl`.
 - El `requestId` del error es la cabecera `X-Correlation-Id` del backend.
+- `User-Agent: oruga-sdk-ts/<versión>`; el logger de `debug` nunca imprime la key.
 
 ---
 
@@ -101,3 +89,5 @@ viejo y se quitó en la v1).
 - Cuando cambie un DTO del backend (`og-backend/src/modules/verifactu/**/dto`
   o los presenters `presentInvoice`/`presentRecord`), hay que actualizar
   `src/types/verifactu.types.ts` a mano.
+- `@calltek/invo-sdk` en npm: deprecarlo apuntando a `@calltek/oruga-sdk`
+  (`npm deprecate`) cuando se publique la 1.0.0.

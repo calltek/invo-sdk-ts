@@ -3,37 +3,21 @@
  */
 
 /** Debug logger: receives a message and some metadata (never the API key). */
-export type InvoDebugLogger = (message: string, meta?: Record<string, unknown>) => void
+export type OrugaDebugLogger = (message: string, meta?: Record<string, unknown>) => void
 
-export interface InvoSDKConfig {
+export interface OrugaSDKConfig {
     /**
      * ORUGA API key (`ogk_…`), created in ORUGA for your workspace with the
-     * `verifactu_*` scopes you need. Sent as `Authorization: Bearer ogk_…`.
+     * scopes you need (e.g. `verifactu_*`). Sent as `Authorization: Bearer ogk_…`.
      * The workspace is the key's: no workspace header is needed.
      */
-    apiKey?: string
-
-    /**
-     * Alias of `apiKey`, kept for v0 code. It must hold an ORUGA API key
-     * (`ogk_…`): the old INVO tokens (`invo_tok_…`) no longer work.
-     * @deprecated Use `apiKey`.
-     */
-    apiToken?: string
+    apiKey: string
 
     /**
      * Base URL of the ORUGA API, including the version prefix.
      * @default 'https://api.oru.ga/v1'
      */
     baseUrl?: string
-
-    /**
-     * Which AEAT environment `store()` targets when it resolves the taxpayer
-     * from `emitterTaxId`: `production`, or `sandbox`/`test` (AEAT
-     * pre-production, no fiscal effect). It is only needed when the same NIF is
-     * registered as a taxpayer in both environments of your workspace. It does
-     * NOT change the URL: in ORUGA the environment belongs to each taxpayer.
-     */
-    environment?: 'production' | 'sandbox' | 'test'
 
     /** Per-attempt request timeout in ms. @default 30000 */
     timeout?: number
@@ -60,7 +44,7 @@ export interface InvoSDKConfig {
      * pass a function to use your own logger.
      * @default false
      */
-    debug?: boolean | InvoDebugLogger
+    debug?: boolean | OrugaDebugLogger
 
     /** Custom `fetch` implementation (tests, proxies…). @default globalThis.fetch */
     fetch?: typeof fetch

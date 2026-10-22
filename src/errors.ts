@@ -1,65 +1,42 @@
 /**
  * Errors thrown by the SDK.
  *
- *   InvoError                     root of everything the SDK throws
- *   ├─ InvoConfigError            bad configuration (missing key, INVO token…)
- *   ├─ InvoValidationError        store() input that cannot be mapped to v1
- *   ├─ InvoNotAvailableError      v0 methods removed in v1 (read, pdf)
- *   └─ AuthError                  (v0 name, kept so `instanceof AuthError` still works)
- *      ├─ InvoApiError            the API answered with an error ({ status, code, message })
- *      │  ├─ InvoAuthError        401 / 403
- *      │  └─ InvoRateLimitError   429
- *      └─ InvoNetworkError        no response (DNS, connection, abort)
- *         └─ InvoTimeoutError     the request timed out
+ *   OrugaError                     root of everything the SDK throws
+ *   ├─ OrugaConfigError            bad configuration (missing or malformed API key…)
+ *   ├─ OrugaValidationError        invalid input caught before calling the API
+ *   │                              (e.g. an invalid or expired webhook signature)
+ *   ├─ OrugaApiError               the API answered with an error ({ status, code, message })
+ *   │  ├─ OrugaAuthError           401 / 403
+ *   │  └─ OrugaRateLimitError      429
+ *   └─ OrugaNetworkError           no response (DNS, connection, abort)
+ *      └─ OrugaTimeoutError        the request timed out
  */
 
 import type { ApiErrorBody } from './types/verifactu.types'
 
-export class InvoError extends Error {
+export class OrugaError extends Error {
     constructor(message: string) {
         super(message)
-        this.name = 'InvoError'
+        this.name = 'OrugaError'
         Object.setPrototypeOf(this, new.target.prototype)
     }
 }
 
-export class InvoConfigError extends InvoError {
+export class OrugaConfigError extends OrugaError {
     constructor(message: string) {
         super(message)
-        this.name = 'InvoConfigError'
+        this.name = 'OrugaConfigError'
     }
 }
 
-export class InvoValidationError extends InvoError {
+export class OrugaValidationError extends OrugaError {
     constructor(message: string) {
         super(message)
-        this.name = 'InvoValidationError'
+        this.name = 'OrugaValidationError'
     }
 }
 
-export class InvoNotAvailableError extends InvoError {
-    constructor(message: string) {
-        super(message)
-        this.name = 'InvoNotAvailableError'
-    }
-}
-
-/**
- * v0 base class of API and network errors. Kept (with `statusCode`) so v0
- * `catch (e) { if (e instanceof AuthError) … }` blocks keep working.
- * New code should check `InvoApiError` / `InvoNetworkError`.
- */
-export class AuthError extends InvoError {
-    constructor(
-        message: string,
-        public statusCode?: number,
-    ) {
-        super(message)
-        this.name = 'AuthError'
-    }
-}
-
-export interface InvoApiErrorInit {
+export interface OrugaApiErrorInit {
     status: number
     code: string
     message: string
@@ -71,7 +48,7 @@ export interface InvoApiErrorInit {
 }
 
 /** The API answered with an error status. */
-export class InvoApiError extends AuthError {
+export class OrugaApiError extends OrugaError {
     /** HTTP status. */
     readonly status: number
     /** Machine-readable code, e.g. `VERIFACTU_INVOICE_INVALID`, `RATE_LIMITED`. */
@@ -86,9 +63,9 @@ export class InvoApiError extends AuthError {
     /** Raw error body. */
     readonly body?: unknown
 
-    constructor(init: InvoApiErrorInit) {
-        super(init.message, init.status)
-        this.name = 'InvoApiError'
+    constructor(init: OrugaApiErrorInit) {
+        super(init.message)
+        this.name = 'OrugaApiError'
         this.status = init.status
         this.code = init.code
         this.requestId = init.requestId ?? null
@@ -112,77 +89,39 @@ export class InvoApiError extends AuthError {
 }
 
 /** 401 (missing, invalid, revoked or expired API key) or 403 (missing scope). */
-export class InvoAuthError extends InvoApiError {
-    constructor(init: InvoApiErrorInit) {
+export class OrugaAuthError extends OrugaApiError {
+    constructor(init: OrugaApiErrorInit) {
         super(init)
-        this.name = 'InvoAuthError'
+        this.name = 'OrugaAuthError'
     }
 }
 
 /** 429: `RATE_LIMITED` (see `retryAfter`) or `VERIFACTU_BULK_IN_PROGRESS`. */
-export class InvoRateLimitError extends InvoApiError {
-    constructor(init: InvoApiErrorInit) {
+export class OrugaRateLimitError extends OrugaApiError {
+    constructor(init: OrugaApiErrorInit) {
         super(init)
-        this.name = 'InvoRateLimitError'
+        this.name = 'OrugaRateLimitError'
     }
 }
 
 /** No response from the API (DNS, connection refused, reset, aborted…). */
-export class InvoNetworkError extends AuthError {
+export class OrugaNetworkError extends OrugaError {
     constructor(
         message = 'Network request failed',
         public readonly cause?: unknown,
     ) {
         super(message)
-        this.name = 'InvoNetworkError'
+        this.name = 'OrugaNetworkError'
     }
 }
 
 /** The request did not finish within the timeout. */
-export class InvoTimeoutError extends InvoNetworkError {
+export class OrugaTimeoutError extends OrugaNetworkError {
     constructor(
         public readonly timeoutMs: number,
         cause?: unknown,
     ) {
         super(`Request timed out after ${timeoutMs} ms`, cause)
-        this.name = 'InvoTimeoutError'
-    }
-}
-
-// ============================================================================
-// v0 names (deprecated)
-// ============================================================================
-
-/** @deprecated v0 name of `InvoNetworkError`. */
-export const NetworkError = InvoNetworkError
-/** @deprecated v0 name of `InvoNetworkError`. */
-export type NetworkError = InvoNetworkError
-
-/** @deprecated v0 name of `InvoAuthError` (401). */
-export const InvalidCredentialsError = InvoAuthError
-/** @deprecated v0 name of `InvoAuthError` (401). */
-export type InvalidCredentialsError = InvoAuthError
-
-/** @deprecated There are no JWTs in v1: never thrown. */
-export class TokenExpiredError extends AuthError {
-    constructor(message = 'Token has expired') {
-        super(message, 401)
-        this.name = 'TokenExpiredError'
-    }
-}
-
-/** @deprecated Only thrown by the deprecated JWT helpers (`decodeJWT`). */
-export class InvalidTokenError extends AuthError {
-    constructor(message = 'Invalid or malformed token') {
-        super(message, 401)
-        this.name = 'InvalidTokenError'
-    }
-}
-
-/** @deprecated There is no OAuth in v1: never thrown. */
-export class OAuthError extends AuthError {
-    constructor(message = 'OAuth authentication failed') {
-        super(message, 401)
-        this.name = 'OAuthError'
+        this.name = 'OrugaTimeoutError'
     }
 }
